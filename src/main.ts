@@ -218,7 +218,15 @@ window.addEventListener('resize', onResize);
 onResize();
 
 // Main render loop
+let lastFrameTime = performance.now();
+const MAX_FRAME_DT = 1 / 15; // cap at 15 FPS equivalent to avoid spiral-of-death
+
 function frame(): void {
+  const now = performance.now();
+  let dt = (now - lastFrameTime) / 1000;
+  lastFrameTime = now;
+  if (dt > MAX_FRAME_DT) dt = MAX_FRAME_DT;
+
   const speed = parseInt(speedInput.value, 10) || 5;
 
   if (!paused) {
@@ -232,7 +240,7 @@ function frame(): void {
       }
     }
 
-    users.tick(1 / 60, performance.now() / 1000, (path) => {
+    users.tick(dt, performance.now() / 1000, (path) => {
       return filePositions.get(path);
     });
 
@@ -265,7 +273,7 @@ function frame(): void {
         }
       }
     }
-    camera.tickMomentum(1 / 60);
+    camera.tickMomentum(dt);
 
     // Auto-fit on first data
     if (!fittedOnce && sim.nodes.length > 0) {
