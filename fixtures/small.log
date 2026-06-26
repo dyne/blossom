@@ -1,0 +1,10 @@
+Ada|A|src/main.ts
+Ada|A|src/utils.ts
+Bob|M|src/main.ts|ffcc33
+Ada|A|lib/helper.ts
+Ada|D|src/utils.ts
+Bob|A|tests/main.test.ts
+Ada|M|lib/helper.ts|44aaff
+Bob|D|tests/main.test.ts
+Admin|A|README.md
+Admin|A|LICENSE

@@ -1,0 +1,17 @@
+|A|anonymous.ts
+
+Ada||no-action.ts
+Ada|A|path with spaces.ts
+Ada|M|colored.ts|#ff0000
+InvalidLine
+Ada|X|bad-action.ts
+Ada|A|
+Ada|A|good.ts|BADCOLOR
+
+
+
+Ada|D|anonymous.ts
+Ada|D|good.ts
+Ada|A|nested/deep/path/file.ts
+Bob|A|nested/deep/path/other.ts
+Ada|D|nested

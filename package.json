@@ -9,13 +9,17 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "sender": "tsx scripts/sender.ts"
   },
   "devDependencies": {
     "@types/node": "^22",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.22.4",
     "typescript": "~5.8",
     "vite": "^6",
-    "vitest": "^3"
+    "vitest": "^3",
+    "ws": "^8.21.0"
   },
   "dependencies": {
     "pixi.js": "^8"
