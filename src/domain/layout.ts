@@ -1,4 +1,5 @@
 import type { DirectoryNode, FileNode, User } from './types';
+import { GOURCE } from './gource-visual-config';
 
 /** 2D vector. */
 export interface Vec2 {
@@ -83,6 +84,26 @@ export function pathHashPosition(path: string, range = 200): Vec2 {
   };
 }
 
+/** Compute the area of a directory using Gource area model. */
+function computeDirArea(dir: DirectoryNode): number {
+  const fileArea = GOURCE.fileRadius * GOURCE.fileRadius * Math.PI;
+  const directVisibleFiles = dir.files.filter((f) => !f.markedForRemoval).length;
+  const directFileArea = fileArea * directVisibleFiles;
+  const childArea = dir.dirs.reduce((sum, child) => sum + computeDirArea(child), 0);
+  return directFileArea + childArea;
+}
+
+/** Gource area-based directory radius. */
+function computeDirRadius(dir: DirectoryNode, area: number): number {
+  const directVisibleFiles = dir.files.filter((f) => !f.markedForRemoval).length;
+  const fileArea = GOURCE.fileRadius * GOURCE.fileRadius * Math.PI;
+  const directFileArea = fileArea * directVisibleFiles;
+  const parentRadius = Math.max(GOURCE.minDirRadius, Math.sqrt(directFileArea) * GOURCE.dirPadding);
+  const radius = Math.max(GOURCE.minDirRadius, Math.sqrt(area) * GOURCE.dirPadding);
+  // Return both; store parentRadius for later use
+  return { radius, parentRadius };
+}
+
 /** Build layout nodes from the repository graph and users. */
 export function buildLayout(
   dirs: DirectoryNode[],
@@ -118,11 +139,9 @@ function addDirNode(
   config: PhysicsConfig,
 ): void {
   const pos = pathHashPosition(dir.path);
-  const fileCount = countFiles(dir);
-  const radius = Math.min(
-    config.maxRadius,
-    Math.max(config.minRadius, config.dirRadius + fileCount * config.radiusPerFile),
-  );
+  const area = computeDirArea(dir);
+  const { radius, parentRadius } = computeDirRadius(dir, area);
+  const directVisibleFiles = dir.files.filter((f) => !f.markedForRemoval).length;
 
   const node: LayoutNode = {
     id: `dir:${dir.path}`,
@@ -134,9 +153,9 @@ function addDirNode(
     radius,
     parent: parent?.id,
     ref: dir,
-    parentRadius: parent ? parent.radius : 0,
-    area: 0,
-    visibleFileCount: fileCount,
+    parentRadius,
+    area,
+    visibleFileCount: directVisibleFiles,
     positionInitialized: true,
     changeTimer: Date.now(),
   };
@@ -161,14 +180,6 @@ function addDirNode(
   for (const subDir of dir.dirs) {
     addDirNode(subDir, node, nodes, config);
   }
-}
-
-function countFiles(dir: DirectoryNode): number {
-  let count = dir.files.length;
-  for (const sub of dir.dirs) {
-    count += countFiles(sub);
-  }
-  return count;
 }
 
 /** Step the physics simulation forward by the fixed dt. */

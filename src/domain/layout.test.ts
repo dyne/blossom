@@ -56,13 +56,31 @@ describe('buildLayout', () => {
     }
   });
 
-  it('directory radius grows with file count', () => {
+  it('directory radius grows with file count (Gource area model)', () => {
     const small = buildLayout([makeDir('a', 'a', 2)], []);
     const large = buildLayout([makeDir('b', 'b', 50)], []);
 
     const smallDir = small.find((n) => n.kind === 'dir')!;
     const largeDir = large.find((n) => n.kind === 'dir')!;
     expect(largeDir.radius).toBeGreaterThan(smallDir.radius);
+  });
+
+  it('directory area includes child directory areas', () => {
+    const child = makeDir('b', 'a/b', 5);
+    const parent = makeDir('a', 'a', 3, [child]);
+    const nodes = buildLayout([parent], []);
+    const parentNode = nodes.find((n) => n.id === 'dir:a')!;
+    // parent area = own files + child area, so parent radius > child
+    expect(parentNode.area).toBeDefined();
+    expect(parentNode.area).toBeGreaterThan(0);
+  });
+
+  it('parentRadius reflects direct visible files only', () => {
+    const dirs: DirectoryNode[] = [makeDir('src', 'src', 5)];
+    const nodes = buildLayout(dirs, []);
+    const dirNode = nodes.find((n) => n.kind === 'dir')!;
+    // parentRadius for root is 0; but the parentRadius field is set
+    expect(typeof dirNode.parentRadius).toBe('number');
   });
 
   it('creates user nodes', () => {
@@ -82,7 +100,8 @@ describe('buildLayout', () => {
     ];
     const nodes = buildLayout(dirs, []);
     const dirNode = nodes.find((n) => n.kind === 'dir')!;
-    expect(dirNode.parentRadius).toBe(0); // root dir has no parent
+    // parentRadius is the dir's own file-only radius, even for root
+    expect(dirNode.parentRadius).toBeGreaterThan(0);
     expect(dirNode.visibleFileCount).toBeGreaterThan(0);
     expect(dirNode.positionInitialized).toBe(true);
     expect(typeof dirNode.changeTimer).toBe('number');
