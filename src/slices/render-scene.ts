@@ -1,5 +1,6 @@
 import type { SceneRenderer } from '../domain/ports';
+import { createPixiRenderer } from '../adapters/pixi-renderer';
 
-export function createSceneRenderer(): SceneRenderer {
-  throw new Error('not implemented');
+export async function createSceneRenderer(canvas: HTMLCanvasElement): Promise<SceneRenderer> {
+  return createPixiRenderer(canvas);
 }
