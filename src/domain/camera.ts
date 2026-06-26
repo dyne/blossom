@@ -16,6 +16,8 @@ export class Camera {
   #destX = 0;
   #destY = 0;
   #destZoom = 1;
+  #targetRotation = 0;
+  #autoRotateEnabled = true;
 
   manualCamera = false;
   manualZoom = false;
@@ -133,6 +135,20 @@ export class Camera {
     }
   }
 
+  /** Set target rotation angle for auto-rotation. */
+  setTargetRotation(radians: number): void {
+    if (!this.manualCamera && !this.manualZoom) {
+      this.#targetRotation = radians;
+      this.#autoRotateEnabled = true;
+    }
+  }
+
+  /** Disable auto-rotation (called on manual interaction). */
+  disableAutoRotation(): void {
+    this.#autoRotateEnabled = false;
+    this.#targetRotation = 0;
+  }
+
   /** Apply destination-based easing toward dest. Call each frame. */
   tickMomentum(dt: number): void {
     const s = this.state;
@@ -157,6 +173,17 @@ export class Camera {
     else s.zoom += stepZ;
 
     s.zoom = this.#clampZoom(s.zoom);
+
+    // Ease rotation toward target
+    if (this.#autoRotateEnabled && s.rotation !== undefined) {
+      const rotDelta = this.#targetRotation - s.rotation;
+      const rotStep = rotDelta * Math.min(1, dt * CAMERA_SPEED * 0.5);
+      if (Math.abs(rotStep) > Math.abs(rotDelta)) {
+        s.rotation = this.#targetRotation;
+      } else {
+        s.rotation += rotStep;
+      }
+    }
 
     // Damping for momentum
     s.vx *= 0.92;

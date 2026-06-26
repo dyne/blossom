@@ -215,10 +215,12 @@ function applyCamera(scene: SceneState, worldLayer: Container, glowLayer?: Conta
   worldLayer.x = -camera.x * camera.zoom + camera.width / 2;
   worldLayer.y = -camera.y * camera.zoom + camera.height / 2;
   worldLayer.scale.set(camera.zoom);
+  worldLayer.rotation = camera.rotation ?? 0;
   if (glowLayer) {
     glowLayer.x = worldLayer.x;
     glowLayer.y = worldLayer.y;
     glowLayer.scale.set(camera.zoom);
+    glowLayer.rotation = camera.rotation ?? 0;
   }
 }
 

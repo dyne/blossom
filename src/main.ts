@@ -253,6 +253,14 @@ function frame(): void {
           const dirBounds = camera.computeDirBounds(dirNodes);
           if (dirBounds) {
             camera.adjust(dirBounds, true);
+            // Auto-rotate: if tree is narrow, rotate 90 degrees
+            const w = dirBounds.maxX - dirBounds.minX;
+            const h = dirBounds.maxY - dirBounds.minY;
+            if (w > 0 && h > 0 && h / w > 2.0) {
+              camera.setTargetRotation(Math.PI / 2);
+            } else {
+              camera.setTargetRotation(0);
+            }
           }
         }
       }

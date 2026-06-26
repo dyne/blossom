@@ -70,6 +70,7 @@ export interface CameraState {
   vx: number;
   vy: number;
   followTarget?: { x: number; y: number };
+  rotation?: number; // world rotation angle in radians
 }
 
 /** Connection state for the WebSocket source. */
