@@ -77,10 +77,13 @@ export interface AppStatus {
   eventCount: number;
 }
 
+import type { LayoutNode } from './layout';
+
 /** A snapshot of the full scene for the renderer. */
 export interface SceneState {
   dirs: DirectoryNode[];
   users: User[];
   camera: CameraState;
   status: AppStatus;
+  layoutNodes?: LayoutNode[];
 }

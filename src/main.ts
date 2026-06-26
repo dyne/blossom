@@ -1,12 +1,13 @@
 import { parseStartup } from './app/startup';
 import { createBrowserWebSocketSource } from './adapters/websocket-source';
+import type { LogEventSource } from './domain/ports';
 import { createPixiRenderer } from './adapters/pixi-renderer';
 import { LiveQueue } from './slices/advance-live-queue';
 import { RepositoryGraph } from './slices/mutate-repository-graph';
 import { UserManager } from './domain/users';
 import { Camera } from './domain/camera';
-import { pathHashPosition } from './domain/layout';
-import type { ConnectionState, SceneState } from './domain/types';
+import { stepSimulation } from './domain/layout';
+import type { ConnectionState, SceneState, LogEvent } from './domain/types';
 
 const startup = parseStartup(window.location.search);
 
@@ -23,6 +24,23 @@ const camera = new Camera();
 let eventCount = 0;
 let connectionState: ConnectionState = 'closed';
 let paused = false;
+let source: LogEventSource = createBrowserWebSocketSource(startup.wsUrl);
+
+function createSource(url: string): LogEventSource {
+  return createBrowserWebSocketSource(url);
+}
+
+function setupSource(newSource: LogEventSource): void {
+  newSource.onEvent((event: LogEvent) => {
+    queue.enqueue(event);
+  });
+  newSource.onState((state: ConnectionState) => {
+    connectionState = state;
+    updateStatusText();
+  });
+}
+
+setupSource(source);
 
 function buildScene(): SceneState {
   return {
@@ -38,25 +56,14 @@ function buildScene(): SceneState {
   };
 }
 
-function applyEvent(event: import('./domain/types').LogEvent): void {
+function applyEvent(event: LogEvent): void {
   graph.apply(event);
   users.enqueueAction(event, performance.now() / 1000);
   eventCount++;
-  // Prune periodically
   if (eventCount % 10 === 0) {
     graph.pruneEmpty();
   }
 }
-
-// WebSocket
-const source = createBrowserWebSocketSource(startup.wsUrl);
-source.onEvent((event) => {
-  queue.enqueue(event);
-});
-source.onState((state) => {
-  connectionState = state;
-  updateStatusText();
-});
 
 // Controls
 const btnConnect = document.getElementById('btn-connect')!;
@@ -76,9 +83,14 @@ btnConnect.addEventListener('click', () => {
     source.stop();
     connected = false;
     btnConnect.textContent = 'connect';
+    connectionState = 'closed';
   } else {
-    // Re-create source with current URL
-    window.location.search = `?ws=${encodeURIComponent(wsUrlInput.value)}&speed=${speedInput.value}`;
+    source.stop();
+    source = createSource(wsUrlInput.value);
+    setupSource(source);
+    source.start();
+    connected = true;
+    btnConnect.textContent = 'disconnect';
   }
 });
 
@@ -94,16 +106,14 @@ btnPause.addEventListener('click', () => {
 });
 
 btnFit.addEventListener('click', () => {
-  const allFiles = graph.allFiles();
-  if (allFiles.length === 0) return;
+  const allNodes = stepSimulation(graph.roots, users.users);
+  if (allNodes.length === 0) return;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const f of allFiles) {
-    // Use hash positions for rough bounds
-    const pos = pathHashPosition(f.path);
-    minX = Math.min(minX, pos.x);
-    minY = Math.min(minY, pos.y);
-    maxX = Math.max(maxX, pos.x);
-    maxY = Math.max(maxY, pos.y);
+  for (const n of allNodes) {
+    minX = Math.min(minX, n.x);
+    minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x);
+    maxY = Math.max(maxY, n.y);
   }
   camera.fitToView({ minX, minY, maxX, maxY });
 });
@@ -155,6 +165,7 @@ canvas.addEventListener('pointerleave', () => {
 // Touch pinch zoom
 let initialPinchDist = 0;
 let initialPinchZoom = 0;
+let initialPinchCenter: { x: number; y: number } = { x: 0, y: 0 };
 
 canvas.addEventListener('touchstart', (e) => {
   if (e.touches.length === 2) {
@@ -164,6 +175,10 @@ canvas.addEventListener('touchstart', (e) => {
       e.touches[0]!.clientY - e.touches[1]!.clientY,
     );
     initialPinchZoom = camera.state.zoom;
+    initialPinchCenter = {
+      x: (e.touches[0]!.clientX + e.touches[1]!.clientX) / 2,
+      y: (e.touches[0]!.clientY + e.touches[1]!.clientY) / 2,
+    };
   }
 });
 
@@ -175,7 +190,11 @@ canvas.addEventListener('touchmove', (e) => {
       e.touches[0]!.clientY - e.touches[1]!.clientY,
     );
     const factor = dist / initialPinchDist;
-    camera.state.zoom = Math.max(0.1, Math.min(10, initialPinchZoom * factor));
+    const targetZoom = initialPinchZoom * factor;
+    const currentZoom = camera.state.zoom;
+    if (currentZoom > 0) {
+      camera.zoomAt(targetZoom / currentZoom, initialPinchCenter.x, initialPinchCenter.y);
+    }
   }
 });
 
@@ -201,8 +220,14 @@ function frame(): void {
     const u = users.getOrCreate(name);
     return { x: u.x, y: u.y };
   });
+
+  // Run physics simulation and get layout positions
+  const layoutNodes = stepSimulation(graph.roots, users.users);
+  const scene = buildScene();
+  scene.layoutNodes = layoutNodes;
+
   updateStatusText();
-  renderer.render(buildScene());
+  renderer.render(scene);
   requestAnimationFrame(frame);
 }
 

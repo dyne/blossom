@@ -231,3 +231,49 @@ export function tickPhysics(
     node.y = Math.max(-maxCoord, Math.min(maxCoord, node.y));
   }
 }
+
+/** Build user-to-target mappings from pending/active actions, using file positions from layout nodes. */
+export function buildUserTargets(
+  users: User[],
+  layoutNodes: LayoutNode[],
+): Map<string, Vec2> {
+  const targets = new Map<string, Vec2>();
+
+  for (const user of users) {
+    for (const action of user.actions) {
+      if (!action.active && action.progress === 0) continue;
+      // Find the file node for this action's path
+      const fileNode = layoutNodes.find(
+        (n) => n.kind === 'file' && n.id === `file:${action.path}`,
+      );
+      if (fileNode) {
+        targets.set(`user:${user.name}`, { x: fileNode.x, y: fileNode.y });
+        break; // Use first matching action target
+      }
+    }
+  }
+
+  return targets;
+}
+
+/** Run one physics step: build layout from graph+users, tick, write user positions back. */
+export function stepSimulation(
+  dirs: DirectoryNode[],
+  users: User[],
+  config?: PhysicsConfig,
+): LayoutNode[] {
+  const nodes = buildLayout(dirs, users, config);
+  const targets = buildUserTargets(users, nodes);
+  tickPhysics(nodes, config, targets);
+
+  // Write user positions back
+  for (const node of nodes) {
+    if (node.kind === 'user' && node.ref) {
+      const user = node.ref as User;
+      user.x = node.x;
+      user.y = node.y;
+    }
+  }
+
+  return nodes;
+}

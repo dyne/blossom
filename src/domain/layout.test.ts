@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildLayout, pathHashPosition, tickPhysics } from './layout';
+import { buildLayout, pathHashPosition, tickPhysics, stepSimulation, buildUserTargets } from './layout';
 import type { DirectoryNode, User } from './types';
 
 function makeDir(name: string, path: string, files: number, dirs: DirectoryNode[] = []): DirectoryNode {
@@ -158,5 +158,47 @@ describe('tickPhysics', () => {
     const elapsed = performance.now() - start;
     // Should complete well under 1 second
     expect(elapsed).toBeLessThan(1000);
+  });
+});
+
+describe('stepSimulation', () => {
+  it('writes user positions back from physics', () => {
+    const dirs: DirectoryNode[] = [
+      makeDir('src', 'src', 2),
+    ];
+    const users: User[] = [
+      {
+        name: 'Ada', color: { r: 1, g: 0, b: 0 }, x: 0, y: 0,
+        actions: [{ kind: 'A', path: 'src/file0.ts', progress: 0, active: true }],
+      },
+    ];
+
+    const initialX = users[0]!.x;
+    for (let f = 0; f < 30; f++) {
+      stepSimulation(dirs, users);
+    }
+    // After 30 steps, user should have moved (attracted to file target)
+    expect(users[0]!.x).not.toBe(initialX);
+  });
+
+  it('returns layout nodes', () => {
+    const dirs: DirectoryNode[] = [makeDir('src', 'src', 1)];
+    const nodes = stepSimulation(dirs, []);
+    expect(nodes.length).toBeGreaterThan(0);
+    expect(nodes.some((n) => n.kind === 'dir')).toBe(true);
+  });
+});
+
+describe('buildUserTargets', () => {
+  it('maps user to file positions based on active actions', () => {
+    const users: User[] = [
+      {
+        name: 'Ada', color: { r: 1, g: 0, b: 0 }, x: 0, y: 0,
+        actions: [{ kind: 'A', path: 'src/file0.ts', progress: 0, active: true }],
+      },
+    ];
+    const nodes = buildLayout([makeDir('src', 'src', 2)], users);
+    const targets = buildUserTargets(users, nodes);
+    expect(targets.has('user:Ada')).toBe(true);
   });
 });
