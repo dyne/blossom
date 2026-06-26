@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
-import { LogEventAssembler } from './assembler.ts';
+import { LogEventAssembler } from './assembler';
 
 describe('LogEventAssembler', () => {
   let assembler: LogEventAssembler;

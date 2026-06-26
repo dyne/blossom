@@ -1,4 +1,4 @@
-import type { ActionKind, Color, LogEvent } from './types.ts';
+import type { ActionKind, Color, LogEvent } from './types';
 
 const VALID_ACTIONS = new Set<string>(['A', 'M', 'D']);
 const COLOR_HEX_RE = /^#?([0-9a-fA-F]{6})$/;

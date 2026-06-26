@@ -1,4 +1,4 @@
-import type { AppStatus, ConnectionState, LogEvent, SceneState } from './types.ts';
+import type { AppStatus, ConnectionState, LogEvent, SceneState } from './types';
 
 /** Emit ordered log events from a live source. */
 export interface LogEventSource {

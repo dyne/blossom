@@ -1,4 +1,4 @@
-import type { LogEvent } from '../domain/types.ts';
+import type { LogEvent } from '../domain/types';
 
 /** FIFO queue that drains log events at a configurable rate. */
 export class LiveQueue {

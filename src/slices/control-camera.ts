@@ -1,4 +1,4 @@
-import type { CameraState } from '../domain/types.ts';
+import type { CameraState } from '../domain/types';
 
 /** Camera model: pan, zoom, fit-to-view. */
 export class Camera {

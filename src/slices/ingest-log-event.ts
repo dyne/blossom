@@ -1,5 +1,5 @@
-import type { LogEvent } from '../domain/types.ts';
-import { stripBom, parseLogLine } from '../domain/parser.ts';
+import type { LogEvent } from '../domain/types';
+import { stripBom, parseLogLine } from '../domain/parser';
 
 let firstLineSeen = false;
 

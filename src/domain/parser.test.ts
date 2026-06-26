@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseColor, parseLogLine, stripBom } from './parser.ts';
+import { parseColor, parseLogLine, stripBom } from './parser';
 
 describe('parseLogLine', () => {
   it('parses a valid add line', () => {

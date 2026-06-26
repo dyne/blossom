@@ -1,5 +1,5 @@
-import type { RepositoryGraph } from './mutate-repository-graph.ts';
-import type { LiveQueue } from './advance-live-queue.ts';
+import type { RepositoryGraph } from './mutate-repository-graph';
+import type { LiveQueue } from './advance-live-queue';
 
 /** Clear all application state: queue, graph, users, renderer. */
 export function resetVisualization(

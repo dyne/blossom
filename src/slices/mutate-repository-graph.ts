@@ -1,4 +1,4 @@
-import type { DirectoryNode, LogEvent } from '../domain/types.ts';
+import type { DirectoryNode, LogEvent } from '../domain/types';
 
 /** The repository directory tree. */
 export class RepositoryGraph {

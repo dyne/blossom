@@ -1,4 +1,4 @@
-import type { LogEventSource } from '../domain/ports.ts';
+import type { LogEventSource } from '../domain/ports';
 
 /** Create and start a log event source for the given WebSocket URL. */
 export function connectStream(url: string): LogEventSource {

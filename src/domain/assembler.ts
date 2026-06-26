@@ -1,5 +1,5 @@
-import type { LogEvent } from './types.ts';
-import { parseLogLine, stripBom } from './parser.ts';
+import type { LogEvent } from './types';
+import { parseLogLine, stripBom } from './parser';
 
 /** Receives raw lines in order and emits one LogEvent per valid line. */
 export class LogEventAssembler {

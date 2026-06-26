@@ -1,5 +1,5 @@
-import type { AppStatus } from '../domain/types.ts';
-import type { StatusSink } from '../domain/ports.ts';
+import type { AppStatus } from '../domain/types';
+import type { StatusSink } from '../domain/ports';
 
 /** Build an AppStatus record from current state. */
 export function buildStatus(
