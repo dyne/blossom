@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
+import { Application, Container, Graphics, Text, TextStyle, BlurFilter } from 'pixi.js';
 import type { SceneRenderer } from '../domain/ports';
 import type { SceneState, FileNode } from '../domain/types';
 import type { LayoutNode } from '../domain/layout';
@@ -10,11 +10,23 @@ interface DisplayCache {
   edges: Map<string, Graphics>;
   users: Map<string, Graphics>;
   beams: Map<string, Graphics>;
+  glowObjects: Map<string, Graphics>;
   userLabels: Map<string, Text>;
   dirLabels: Map<string, Text>;
   hudTexts: Text[];
   fileCreateTimes: Map<string, number>;
 }
+
+interface Particle {
+  g: Graphics;
+  x: number; y: number;
+  vx: number; vy: number;
+  life: number; maxLife: number;
+  color: number;
+}
+
+const MAX_PARTICLES = 200;
+let _gRelease: ((g: Graphics) => void) | null = null;
 
 function now(): number { return Date.now(); }
 
@@ -48,6 +60,13 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
   worldLayer.addChild(bgLayer, edgeLayer, fileLayer, beamLayer, userLayer, worldLabelLayer);
   app.stage.addChild(worldLayer);
 
+  // Glow layer with bloom effect
+  const glowLayer = new Container();
+  const blurFilter = new BlurFilter({ strength: 8, quality: 4 });
+  glowLayer.filters = [blurFilter];
+  glowLayer.blendMode = 'add';
+  app.stage.addChild(glowLayer);
+
   const hudLayer = new Container();
   app.stage.addChild(hudLayer);
 
@@ -63,7 +82,7 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
 
   const cache: DisplayCache = {
     dirs: new Map(), files: new Map(), edges: new Map(),
-    users: new Map(), beams: new Map(),
+    users: new Map(), beams: new Map(), glowObjects: new Map(),
     userLabels: new Map(), dirLabels: new Map(),
     hudTexts: [],
     fileCreateTimes: new Map(),
@@ -72,15 +91,51 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
   let lastHudUpdate = 0;
   const hudThrottleMs = 500;
 
+  // Particle pool
+  const particles: Particle[] = [];
+  const particlePool: Graphics[] = [];
+
+  function getParticle(): Graphics {
+    const g = particlePool.pop() ?? new Graphics();
+    glowLayer.addChild(g);
+    return g;
+  }
+
+  function releaseParticle(g: Graphics): void {
+    g.clear();
+    glowLayer.removeChild(g);
+    particlePool.push(g);
+  }
+  _gRelease = releaseParticle;
+
+  // Starfield
+  const stars: { x: number; y: number; r: number; a: number; phase: number }[] = [];
+  const starGraphics = new Graphics();
+  bgLayer.addChild(starGraphics);
+  for (let i = 0; i < 120; i++) {
+    stars.push({
+      x: (Math.random() - 0.5) * 4000,
+      y: (Math.random() - 0.5) * 4000,
+      r: Math.random() * 1.2 + 0.3,
+      a: Math.random() * 0.3 + 0.05,
+      phase: Math.random() * Math.PI * 2,
+    });
+  }
+
   setupVisibilityObserver(app);
 
   const renderer: SceneRenderer = {
     render(scene: SceneState) {
-      applyCamera(scene, worldLayer);
+      applyCamera(scene, worldLayer, glowLayer);
+
+      drawStarfield(stars, starGraphics);
 
       const layoutNodes = scene.layoutNodes;
       if (layoutNodes && layoutNodes.length > 0) {
         drawFromLayout(layoutNodes, cache, edgeLayer, fileLayer, worldLabelLayer, dirLabelStyle);
+        drawGlow(layoutNodes, scene, cache, glowLayer);
+        emitParticles(layoutNodes, scene, particles, getParticle);
+        updateParticles(particles, releaseParticle);
       } else {
         drawDirs(scene, cache, edgeLayer, fileLayer);
       }
@@ -90,7 +145,11 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
       lastHudUpdate = now();
     },
     destroy() {
-      clearAllCache(cache, edgeLayer, fileLayer, userLayer, beamLayer, worldLabelLayer, hudLayer);
+      clearAllCache(cache, edgeLayer, fileLayer, userLayer, beamLayer, worldLabelLayer, hudLayer, glowLayer);
+      for (const p of particles) { p.g.destroy(); }
+      particles.length = 0;
+      for (const g of particlePool) { g.destroy(); }
+      particlePool.length = 0;
       app.destroy(true);
     },
   };
@@ -113,7 +172,7 @@ function setupVisibilityObserver(app: Application): void {
 }
 
 function clearAllCache(cache: DisplayCache, ...parents: Container[]): void {
-  for (const map of [cache.dirs, cache.files, cache.edges, cache.users, cache.beams, cache.userLabels, cache.dirLabels]) {
+  for (const map of [cache.dirs, cache.files, cache.edges, cache.users, cache.beams, cache.glowObjects, cache.userLabels, cache.dirLabels]) {
     for (const obj of map.values()) obj.destroy();
     map.clear();
   }
@@ -123,11 +182,16 @@ function clearAllCache(cache: DisplayCache, ...parents: Container[]): void {
   for (const p of parents) p.removeChildren();
 }
 
-function applyCamera(scene: SceneState, worldLayer: Container): void {
+function applyCamera(scene: SceneState, worldLayer: Container, glowLayer?: Container): void {
   const { camera } = scene;
   worldLayer.x = -camera.x * camera.zoom + camera.width / 2;
   worldLayer.y = -camera.y * camera.zoom + camera.height / 2;
   worldLayer.scale.set(camera.zoom);
+  if (glowLayer) {
+    glowLayer.x = worldLayer.x;
+    glowLayer.y = worldLayer.y;
+    glowLayer.scale.set(camera.zoom);
+  }
 }
 
 function ensureCreationTime(cache: DisplayCache, id: string): number {
@@ -146,6 +210,126 @@ function computeTransitions(id: string, cache: DisplayCache): { alpha: number; s
   // ease-out
   const eased = 1 - (1 - t) * (1 - t);
   return { alpha: eased, scale: 0.5 + eased * 0.5 };
+}
+
+function drawStarfield(stars: { x: number; y: number; r: number; a: number; phase: number }[], g: Graphics): void {
+  g.clear();
+  const t = now() * 0.001;
+  for (const s of stars) {
+    const alpha = s.a * (0.5 + 0.5 * Math.sin(t * 0.5 + s.phase));
+    g.circle(s.x, s.y, s.r);
+    g.fill({ color: 0xffffff, alpha });
+  }
+}
+
+function drawGlow(
+  layoutNodes: LayoutNode[], scene: SceneState,
+  cache: DisplayCache, glowLayer: Container,
+): void {
+  const seen = new Set<string>();
+  const n = now();
+  const fileNodeMap = new Map(layoutNodes.filter((nd) => nd.kind === 'file').map((nd) => [nd.id, nd]));
+
+  for (const node of layoutNodes) {
+    if (node.kind !== 'file') continue;
+    const file = node.ref as FileNode | undefined;
+    if (!file?.flashUntil || n >= file.flashUntil) continue;
+
+    const gid = `glow:file:${node.id}`;
+    seen.add(gid);
+    let gg = cache.glowObjects.get(gid);
+    if (!gg) { gg = new Graphics(); cache.glowObjects.set(gid, gg); glowLayer.addChild(gg); }
+
+    const color = file.color
+      ? (Math.round(file.color.r * 255) << 16 | Math.round(file.color.g * 255) << 8 | Math.round(file.color.b * 255))
+      : 0x44cc44;
+    gg.clear();
+    gg.circle(0, 0, 8);
+    gg.fill({ color, alpha: 0.4 });
+    gg.x = node.x; gg.y = node.y;
+  }
+
+  for (const user of scene.users) {
+    for (const action of user.actions) {
+      if (!action.active) continue;
+      const gid = `glow:beam:${user.name}:${action.path}`;
+      seen.add(gid);
+      let gg = cache.glowObjects.get(gid);
+      if (!gg) { gg = new Graphics(); cache.glowObjects.set(gid, gg); glowLayer.addChild(gg); }
+
+      const targetFile = fileNodeMap.get(`file:${action.path}`);
+      const beamColor = action.kind === 'A' ? 0x44ff44 : action.kind === 'M' ? 0xffff44 : 0xff4444;
+      gg.clear();
+      gg.moveTo(user.x, user.y);
+      if (targetFile) {
+        const dx = targetFile.x - user.x;
+        const dy = targetFile.y - user.y;
+        gg.lineTo(user.x + dx * action.progress, user.y + dy * action.progress);
+      } else {
+        gg.lineTo(user.x + 30, user.y);
+      }
+      gg.stroke({ color: beamColor, width: 3, alpha: 0.25 });
+    }
+  }
+
+  for (const [id, obj] of cache.glowObjects) {
+    if (!seen.has(id)) { obj.destroy(); cache.glowObjects.delete(id); }
+  }
+}
+
+function emitParticles(
+  layoutNodes: LayoutNode[], scene: SceneState,
+  particles: Particle[], getParticle: () => Graphics,
+): void {
+  const fileNodeMap = new Map(layoutNodes.filter((nd) => nd.kind === 'file').map((nd) => [nd.id, nd]));
+
+  for (const user of scene.users) {
+    for (const action of user.actions) {
+      if (!action.active) continue;
+      if (Math.random() > 0.3) continue;
+
+      const targetFile = fileNodeMap.get(`file:${action.path}`);
+      const color = action.kind === 'A' ? 0x44ff44 : action.kind === 'M' ? 0xffff44 : 0xff4444;
+      const tx = targetFile ? user.x + (targetFile.x - user.x) * action.progress : user.x + 30;
+      const ty = targetFile ? user.y + (targetFile.y - user.y) * action.progress : user.y;
+
+      if (particles.length >= MAX_PARTICLES) {
+        const old = particles.shift();
+        if (old) { old.g.clear(); _gRelease?.(old.g); }
+      }
+
+      particles.push({
+        g: getParticle(),
+        x: user.x, y: user.y,
+        vx: (Math.random() - 0.5) * 0.3,
+        vy: (Math.random() - 0.5) * 0.3,
+        life: Math.random() * 0.5 + 0.3,
+        maxLife: Math.random() * 0.5 + 0.3,
+        color,
+      });
+    }
+  }
+}
+
+function updateParticles(particles: Particle[], release: (g: Graphics) => void): void {
+  _gRelease = release;
+  const dt = 1 / 60;
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i]!;
+    p.life -= dt;
+    if (p.life <= 0) {
+      p.g.clear();
+      release(p.g);
+      particles.splice(i, 1);
+      continue;
+    }
+    p.x += p.vx;
+    p.y += p.vy;
+    const alpha = (p.life / p.maxLife) * 0.6;
+    p.g.clear();
+    p.g.circle(p.x, p.y, 1.5);
+    p.g.fill({ color: p.color, alpha });
+  }
 }
 
 function drawFromLayout(
