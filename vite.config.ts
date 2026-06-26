@@ -6,4 +6,7 @@ export default defineConfig({
     outDir: 'dist',
     target: 'es2022',
   },
+  test: {
+    exclude: ['e2e/**', 'node_modules/**'],
+  },
 });
