@@ -351,10 +351,36 @@ export function tickPhysics(
   // Gource-style directory forces
   applyDirForces(nodes, fx, fy);
 
-  // User-user repulsion + user-target attraction
+  // User-user repulsion + user-target attraction (Gource-style)
   for (let i = 0; i < n; i++) {
     const a = nodes[i]!;
     if (a.kind !== 'user') continue;
+
+    // User-target: approach/retreat based on distance to active file
+    if (userTargets) {
+      const target = userTargets.get(a.id);
+      if (target) {
+        const dx = target.x - a.x;
+        const dy = target.y - a.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > 0.001) {
+          if (dist < GOURCE.actionDistance) {
+            // Too close, push away
+            const force = GOURCE.maxUserSpeed * 0.5;
+            fx[i]! -= force * (dx / dist);
+            fy[i]! -= force * (dy / dist);
+          } else if (dist > GOURCE.beamDistance) {
+            // Too far, pull toward
+            const force = GOURCE.maxUserSpeed * 0.5;
+            fx[i]! += force * (dx / dist);
+            fy[i]! += force * (dy / dist);
+          }
+          // Otherwise maintain distance (no force)
+        }
+      }
+    }
+
+    // User-user repulsion
     for (let j = i + 1; j < n; j++) {
       const b = nodes[j]!;
       if (b.kind !== 'user') continue;
@@ -362,23 +388,12 @@ export function tickPhysics(
       const dy = b.y - a.y;
       const dist = Math.hypot(dx, dy);
       if (dist < 0.001) continue;
-      const force = config.userRepulsion / (dist * dist);
-      fx[i]! -= force * (dx / dist);
-      fy[i]! -= force * (dy / dist);
-      fx[j]! += force * (dx / dist);
-      fy[j]! += force * (dy / dist);
-    }
-
-    if (userTargets) {
-      const target = userTargets.get(a.id);
-      if (target) {
-        const dx = target.x - a.x;
-        const dy = target.y - a.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist > 1) {
-          fx[i]! += config.userAttraction * dx;
-          fy[i]! += config.userAttraction * dy;
-        }
+      if (dist < GOURCE.personalSpaceDistance) {
+        const force = GOURCE.maxUserSpeed * 0.3;
+        fx[i]! -= force * (dx / dist);
+        fy[i]! -= force * (dy / dist);
+        fx[j]! += force * (dx / dist);
+        fy[j]! += force * (dy / dist);
       }
     }
   }
@@ -389,8 +404,25 @@ export function tickPhysics(
     if (node.kind === 'file') continue; // files move via updateFilePositions
     node.vx += fx[i]! * dt;
     node.vy += fy[i]! * dt;
+
+    // Clamp user acceleration to maxUserSpeed
+    if (node.kind === 'user') {
+      const speed = Math.hypot(node.vx, node.vy);
+      if (speed > GOURCE.maxUserSpeed) {
+        node.vx = (node.vx / speed) * GOURCE.maxUserSpeed;
+        node.vy = (node.vy / speed) * GOURCE.maxUserSpeed;
+      }
+    }
+
     node.vx *= config.damping;
     node.vy *= config.damping;
+
+    // Apply Gource user friction after position update
+    if (node.kind === 'user') {
+      node.vx *= Math.max(0, 1 - GOURCE.userFriction * dt);
+      node.vy *= Math.max(0, 1 - GOURCE.userFriction * dt);
+    }
+
     node.x += node.vx * dt;
     node.y += node.vy * dt;
 

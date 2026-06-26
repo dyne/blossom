@@ -200,14 +200,14 @@ describe('tickPhysics', () => {
     ];
     const nodes = buildLayout([], users);
     const targets = new Map<string, { x: number; y: number }>();
-    targets.set('user:Ada', { x: 100, y: 0 });
+    targets.set('user:Ada', { x: 200, y: 0 }); // farther than beamDistance (100)
 
     for (let i = 0; i < 100; i++) {
       tickPhysics(nodes, undefined, targets);
     }
 
     const ada = nodes.find((n) => n.id === 'user:Ada')!;
-    expect(ada.x).toBeGreaterThan(1); // moved toward target
+    expect(ada.x).toBeGreaterThan(1); // moved toward target beyond beamDistance
   });
 
   it('file moves to ring destination in local coordinates', () => {
@@ -361,16 +361,18 @@ describe('stepSimulation', () => {
     ];
     const users: User[] = [
       {
-        name: 'Ada', color: { r: 1, g: 0, b: 0 }, x: 0, y: 0,
+        name: 'Ada', color: { r: 1, g: 0, b: 0 }, x: 500, y: 0,
         actions: [{ kind: 'A', path: 'src/file0.ts', progress: 0, active: true }],
       },
     ];
 
     const initialX = users[0]!.x;
+    expect(initialX).toBe(500); // far from file, beyond beamDistance
+
     for (let f = 0; f < 30; f++) {
       stepSimulation(dirs, users);
     }
-    // After 30 steps, user should have moved (attracted to file target)
+
     expect(users[0]!.x).not.toBe(initialX);
   });
 
