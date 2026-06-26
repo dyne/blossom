@@ -40,7 +40,7 @@ export function parseStartup(search: string): StartupResponse {
     }
   }
 
-  const autoplay = params.get('autoplay') !== '0';
+  const autoplay = params.get('autoplay') === '1';
   const demo = params.has('demo');
 
   return {

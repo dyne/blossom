@@ -6,7 +6,7 @@ describe('parseStartup', () => {
     const r = parseStartup('');
     expect(r.wsUrl).toBe('ws://localhost:8080/stream');
     expect(r.speed).toBe(5);
-    expect(r.autoplay).toBe(true);
+    expect(r.autoplay).toBe(false);
     expect(r.demo).toBe(false);
     expect(r.isValid).toBe(true);
   });
@@ -20,6 +20,11 @@ describe('parseStartup', () => {
   it('parses custom speed', () => {
     const r = parseStartup('?speed=10');
     expect(r.speed).toBe(10);
+  });
+
+  it('parses autoplay=1 as true', () => {
+    const r = parseStartup('?autoplay=1');
+    expect(r.autoplay).toBe(true);
   });
 
   it('parses autoplay=0 as false', () => {

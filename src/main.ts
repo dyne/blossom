@@ -78,7 +78,16 @@ const statusText = document.getElementById('status-text')!;
 wsUrlInput.value = startup.wsUrl;
 speedInput.value = String(startup.speed);
 
+// Connection if autoplay
 let connected = false;
+if (startup.autoplay) {
+  source.start();
+  connected = true;
+  btnConnect.textContent = 'disconnect';
+} else {
+  connectionState = 'closed';
+  updateStatusText();
+}
 btnConnect.addEventListener('click', () => {
   if (connected) {
     source.stop();
@@ -206,13 +215,6 @@ function onResize(): void {
 }
 window.addEventListener('resize', onResize);
 onResize();
-
-// Connection if autoplay
-if (startup.autoplay) {
-  source.start();
-  connected = true;
-  btnConnect.textContent = 'disconnect';
-}
 
 // Main render loop
 function frame(): void {
