@@ -1,5 +1,5 @@
 import type { DirectoryNode, FileNode, User } from './types';
-import { pathHashPosition, type LayoutNode, type PhysicsConfig, type Vec2, buildLayout, tickPhysics, buildUserTargets } from './layout';
+import { pathHashPosition, type LayoutNode, type PhysicsConfig, type Vec2, buildLayout, tickPhysics, buildUserTargets, updateFilePositions } from './layout';
 
 const DEFAULT_CONFIG: PhysicsConfig = {
   dt: 1 / 60,
@@ -61,13 +61,13 @@ export class Simulation {
 
   /** Run one physics tick on the persistent node array. */
   tick(): void {
-    // Build user targets from current nodes and user refs
     const users = new Set<User>();
     for (const n of this.#nodes) {
       if (n.kind === 'user' && n.ref) users.add(n.ref as User);
     }
     const targets = buildUserTargets([...users], this.#nodes);
     tickPhysics(this.#nodes, this.#config, targets);
+    updateFilePositions(this.#nodes, this.#config.dt);
   }
 
   /** Copy user node positions back into User domain objects. */

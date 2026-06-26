@@ -297,9 +297,10 @@ export function tickPhysics(
     fy[i]! += force * (dy / dist);
   }
 
-  // Integrate
+  // Integrate (skip file nodes — they move in local coords)
   for (let i = 0; i < n; i++) {
     const node = nodes[i]!;
+    if (node.kind === 'file') continue; // files move via updateFilePositions
     node.vx += fx[i]! * dt;
     node.vy += fy[i]! * dt;
     node.vx *= config.damping;
@@ -307,10 +308,43 @@ export function tickPhysics(
     node.x += node.vx * dt;
     node.y += node.vy * dt;
 
-    // Clamp to prevent runaway
     const maxCoord = 10000;
     node.x = Math.max(-maxCoord, Math.min(maxCoord, node.x));
     node.y = Math.max(-maxCoord, Math.min(maxCoord, node.y));
+  }
+}
+
+/** Move file nodes toward their ring destinations in local directory coordinates. */
+export function updateFilePositions(nodes: LayoutNode[], dt: number): void {
+  const dirLookup = new Map(nodes.filter((n) => n.kind === 'dir').map((n) => [n.id, n]));
+
+  for (const node of nodes) {
+    if (node.kind !== 'file' || !node.directoryId) continue;
+    const dir = dirLookup.get(node.directoryId);
+    if (!dir) continue;
+
+    const dist = node.distance ?? 0;
+    const targetLocalX = (node.destX ?? 0) * dist;
+    const targetLocalY = (node.destY ?? 0) * dist;
+
+    let dx = targetLocalX - (node.localX ?? 0);
+    let dy = targetLocalY - (node.localY ?? 0);
+
+    const speed = GOURCE.fileMoveSpeed;
+    let stepX = dx * speed * dt;
+    let stepY = dy * speed * dt;
+    const stepLen = Math.hypot(stepX, stepY);
+    const deltaLen = Math.hypot(dx, dy);
+
+    if (stepLen > deltaLen) {
+      stepX = dx;
+      stepY = dy;
+    }
+
+    node.localX = (node.localX ?? 0) + stepX;
+    node.localY = (node.localY ?? 0) + stepY;
+    node.x = dir.x + (node.localX ?? 0);
+    node.y = dir.y + (node.localY ?? 0);
   }
 }
 
@@ -346,9 +380,10 @@ export function stepSimulation(
 ): LayoutNode[] {
   const nodes = buildLayout(dirs, users, config);
   const targets = buildUserTargets(users, nodes);
-  tickPhysics(nodes, config, targets);
+  const cfg = config ?? DEFAULT_CONFIG;
+  tickPhysics(nodes, cfg, targets);
+  updateFilePositions(nodes, cfg.dt);
 
-  // Write user positions back
   for (const node of nodes) {
     if (node.kind === 'user' && node.ref) {
       const user = node.ref as User;

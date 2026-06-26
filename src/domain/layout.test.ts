@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildLayout, pathHashPosition, tickPhysics, stepSimulation, buildUserTargets } from './layout';
+import { buildLayout, pathHashPosition, tickPhysics, stepSimulation, buildUserTargets, updateFilePositions } from './layout';
 import type { DirectoryNode, User } from './types';
 
 function makeDir(name: string, path: string, files: number, dirs: DirectoryNode[] = []): DirectoryNode {
@@ -210,21 +210,50 @@ describe('tickPhysics', () => {
     expect(ada.x).toBeGreaterThan(1); // moved toward target
   });
 
-  it('file moves toward parent directory', () => {
+  it('file moves to ring destination in local coordinates', () => {
+    const dirs: DirectoryNode[] = [makeDir('src', 'src', 10)];
+    const nodes = buildLayout(dirs, []);
+    // Find a file on a ring with non-zero distance
+    const fileNode = nodes.find((n) => n.kind === 'file' && (n.distance ?? 0) > 0)!;
+    expect(fileNode).toBeDefined();
+
+    const initialLX = fileNode.localX;
+    const initialLY = fileNode.localY;
+
+    for (let i = 0; i < 60; i++) {
+      updateFilePositions(nodes, 1 / 60);
+    }
+
+    expect(fileNode.localX !== initialLX || fileNode.localY !== initialLY).toBe(true);
+  });
+
+  it('file absolute position follows parent directory', () => {
+    const dirs: DirectoryNode[] = [makeDir('src', 'src', 1)];
+    const nodes = buildLayout(dirs, []);
+    const dirNode = nodes.find((n) => n.kind === 'dir')!;
+    const fileNode = nodes.find((n) => n.kind === 'file')!;
+
+    dirNode.x = 500;
+    dirNode.y = 300;
+    updateFilePositions(nodes, 1 / 60);
+
+    expect(fileNode.x).toBeCloseTo(dirNode.x + (fileNode.localX ?? 0), 0);
+    expect(fileNode.y).toBeCloseTo(dirNode.y + (fileNode.localY ?? 0), 0);
+  });
+
+  it('file no overshoot to ring destination', () => {
     const dirs: DirectoryNode[] = [makeDir('src', 'src', 1)];
     const nodes = buildLayout(dirs, []);
     const fileNode = nodes.find((n) => n.kind === 'file')!;
+    const tx = (fileNode.destX ?? 0) * (fileNode.distance ?? 0);
+    const ty = (fileNode.destY ?? 0) * (fileNode.distance ?? 0);
 
-    fileNode.x = 1000;
-    fileNode.y = 1000;
-
-    for (let i = 0; i < 60; i++) {
-      tickPhysics(nodes);
+    for (let i = 0; i < 600; i++) {
+      updateFilePositions(nodes, 1 / 60);
     }
 
-    // File should have moved from its displaced position
-    const moved = fileNode.x !== 1000 || fileNode.y !== 1000;
-    expect(moved).toBe(true);
+    expect(Math.abs((fileNode.localX ?? 0) - tx)).toBeLessThan(0.1);
+    expect(Math.abs((fileNode.localY ?? 0) - ty)).toBeLessThan(0.1);
   });
 
   it('preserves valid coordinates after reset-like empty build', () => {
