@@ -74,11 +74,11 @@ describe('UserManager', () => {
     user.y = 0;
 
     const getUserPos = () => ({ x: 0, y: 0 });
-    mgr.tick(0.5, 0.5, getUserPos); // activate + advance 0.25
+    mgr.tick(0.5, 0.5, getUserPos); // activate + advance 0.5
     expect(user.actions[0]!.active).toBe(true);
 
-    mgr.tick(0.5, 1.0, getUserPos); // advance another 0.25
-    expect(user.actions[0]!.progress).toBeCloseTo(0.5, 1);
+    mgr.tick(0.1, 1.0, getUserPos); // advance another 0.1
+    expect(user.actions[0]!.progress).toBeCloseTo(0.6, 1);
   });
 
   it('completes and removes actions when progress reaches 1', () => {

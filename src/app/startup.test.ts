@@ -5,7 +5,7 @@ describe('parseStartup', () => {
   it('returns defaults when no params', () => {
     const r = parseStartup('');
     expect(r.wsUrl).toBe('ws://localhost:8080/stream');
-    expect(r.speed).toBe(5);
+    expect(r.speed).toBe(8);
     expect(r.autoplay).toBe(false);
     expect(r.demo).toBe(false);
     expect(r.isValid).toBe(true);

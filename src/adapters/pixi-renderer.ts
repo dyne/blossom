@@ -115,7 +115,7 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
   app.stage.addChild(worldLayer);
 
   const glowLayer = new Container();
-  const blurFilter = new BlurFilter({ strength: 8, quality: 4 });
+  const blurFilter = new BlurFilter({ strength: 14, quality: 6 });
   glowLayer.filters = [blurFilter];
   glowLayer.blendMode = 'add';
   app.stage.addChild(glowLayer);
@@ -269,9 +269,11 @@ function drawFromLayout(
       g.clear();
       const r = node.radius;
       g.circle(0, 0, r);
-      g.fill({ color: 0x222244, alpha: 0.3 * trans.alpha });
+      g.fill({ color: 0x1a1a3a, alpha: 0.5 * trans.alpha });
       g.circle(0, 0, r);
-      g.stroke({ color: 0x4444aa, width: 1, alpha: 0.5 * trans.alpha });
+      g.stroke({ color: 0x5555cc, width: 1.5, alpha: 0.6 * trans.alpha });
+      g.circle(0, 0, r * 0.6);
+      g.stroke({ color: 0x4444aa, width: 0.5, alpha: 0.3 * trans.alpha });
       g.x = node.x; g.y = node.y;
       g.scale.set(trans.scale);
 
@@ -304,13 +306,17 @@ function drawFromLayout(
       }
 
       const trans = computeTransitions(node.id, cache);
-      const size = 4;
+      const size = 3;
       if (file?.markedForRemoval) {
-        fg.rect(-size, -size, size * 2, size * 2);
-        fg.stroke({ color: colorHex, width: 1, alpha: fileAlpha * 0.5 * trans.alpha });
+        fg.circle(0, 0, size);
+        fg.stroke({ color: colorHex, width: 1.5, alpha: fileAlpha * 0.4 * trans.alpha });
+        fg.circle(0, 0, size * 0.5);
+        fg.stroke({ color: colorHex, width: 0.5, alpha: fileAlpha * 0.2 * trans.alpha });
       } else {
-        fg.rect(-size, -size, size * 2, size * 2);
+        fg.circle(0, 0, size);
         fg.fill({ color: colorHex, alpha: fileAlpha * trans.alpha });
+        fg.circle(0, 0, size * 1.8);
+        fg.stroke({ color: colorHex, width: 0.5, alpha: fileAlpha * 0.25 * trans.alpha });
       }
       fg.x = node.x; fg.y = node.y;
       fg.scale.set(trans.scale);
@@ -366,8 +372,8 @@ function drawGlow(
       ? (Math.round(file.color.r * 255) << 16 | Math.round(file.color.g * 255) << 8 | Math.round(file.color.b * 255))
       : 0x44cc44;
     gg.clear();
-    gg.circle(0, 0, 8);
-    gg.fill({ color, alpha: 0.4 });
+    gg.circle(0, 0, 14);
+    gg.fill({ color, alpha: 0.5 });
     gg.x = node.x; gg.y = node.y;
   }
 
@@ -390,7 +396,7 @@ function drawGlow(
       } else {
         gg.lineTo(user.x + 30, user.y);
       }
-      gg.stroke({ color: beamColor, width: 3, alpha: 0.25 });
+      gg.stroke({ color: beamColor, width: 4, alpha: 0.35 });
     }
   }
 
@@ -440,8 +446,10 @@ function drawUsers(
     if (!g) { g = new Graphics(); cache.users.set(uid, g); userLayer.addChild(g); }
     const ucolor = Math.round(user.color.r * 255) << 16 | Math.round(user.color.g * 255) << 8 | Math.round(user.color.b * 255);
     g.clear();
-    g.circle(0, 0, 5);
-    g.fill({ color: ucolor, alpha: 1 });
+    g.circle(0, 0, 7);
+    g.fill({ color: ucolor, alpha: 0.9 });
+    g.circle(0, 0, 3);
+    g.fill({ color: 0xffffff, alpha: 0.35 });
     g.x = user.x; g.y = user.y;
 
     let label = cache.userLabels.get(uid);

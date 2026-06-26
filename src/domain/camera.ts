@@ -93,8 +93,8 @@ export class Camera {
 
     // Follow target with easing
     if (s.followTarget) {
-      s.vx += (s.followTarget.x - s.x) * 0.02 * dt * 60;
-      s.vy += (s.followTarget.y - s.y) * 0.02 * dt * 60;
+      s.vx += (s.followTarget.x - s.x) * 0.015 * dt * 60;
+      s.vy += (s.followTarget.y - s.y) * 0.015 * dt * 60;
     }
 
     // Apply velocity with damping

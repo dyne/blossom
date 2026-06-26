@@ -219,46 +219,43 @@ onResize();
 // Main render loop
 function frame(): void {
   const speed = parseInt(speedInput.value, 10) || 5;
-  queue.tick(speed, applyEvent);
 
-  // Sync simulation with current graph and users (preserves positions)
-  sim.sync(graph.roots, users.users);
+  if (!paused) {
+    queue.tick(speed, applyEvent);
+    sim.sync(graph.roots, users.users);
 
-  // Build map of file path → position for user targeting
-  const filePositions = new Map<string, { x: number; y: number }>();
-  for (const node of sim.nodes) {
-    if (node.kind === 'file') {
-      filePositions.set((node.ref as import('./domain/types').FileNode).path, { x: node.x, y: node.y });
+    const filePositions = new Map<string, { x: number; y: number }>();
+    for (const node of sim.nodes) {
+      if (node.kind === 'file') {
+        filePositions.set((node.ref as { path: string }).path, { x: node.x, y: node.y });
+      }
     }
-  }
 
-  // Advance user actions with file targets for proximity activation
-  users.tick(1 / 60, performance.now() / 1000, (name) => {
-    const u = users.getOrCreate(name);
-    for (const action of u.actions) {
-      const pos = filePositions.get(action.path);
-      if (pos) return pos;
+    users.tick(1 / 60, performance.now() / 1000, (name) => {
+      const u = users.getOrCreate(name);
+      for (const action of u.actions) {
+        const pos = filePositions.get(action.path);
+        if (pos) return pos;
+      }
+      return { x: u.x, y: u.y };
+    });
+
+    sim.tick();
+    sim.writeUserPositions();
+
+    if (!dragging) {
+      let cx = 0, cy = 0, activeCount = 0;
+      for (const u of users.users) {
+        if (u.actions.some((a) => a.active)) {
+          cx += u.x; cy += u.y; activeCount++;
+        }
+      }
+      if (activeCount > 0) {
+        camera.setFollowTarget({ x: cx / activeCount, y: cy / activeCount });
+      }
     }
-    return { x: u.x, y: u.y };
-  });
-
-  // Run physics tick
-  sim.tick();
-  sim.writeUserPositions();
-
-  // Camera auto-follow: centroid of users with active actions
-  let cx = 0, cy = 0, activeCount = 0;
-  for (const u of users.users) {
-    if (u.actions.some((a) => a.active)) {
-      cx += u.x;
-      cy += u.y;
-      activeCount++;
-    }
+    camera.tickMomentum(1 / 60);
   }
-  if (activeCount > 0) {
-    camera.setFollowTarget({ x: cx / activeCount, y: cy / activeCount });
-  }
-  camera.tickMomentum(1 / 60);
 
   const scene = buildScene();
   scene.layoutNodes = sim.nodes;

@@ -1,0 +1,73 @@
+#+TITLE: Blossom V1 Fixes Plan
+#+SUBTITLE: Wire physics to renderer and fix main.ts / renderer bugs
+#+DATE: 2026-06-26
+#+KEYWORDS: blossom physics renderer fixes
+
+* TODO [#A] Wire Physics Into The Render Loop
+:PROPERTIES:
+:Effort: 0.5d
+:Goal: Users and directories move visually per force simulation.
+:Notes: The root cause is that =tickPhysics= is never called, and when it would be, positions are not written back to =User= objects or fed to the renderer. The renderer computes directory positions ad-hoc via =pathHashPosition=.
+:END:
+
+** TODO [#A] Run tickPhysics Each Frame And Write User Positions Back
+:PROPERTIES:
+:Why: =users.tick= advances action progress but user dots never move toward targets. =tickPhysics= must run in the main loop and its output must be written back to =User.x/y=.
+:Change: In =main.ts='s =frame()=, after =users.tick()=, call =buildLayout(graph.roots, users.users)=, pass user-to-target mappings based on active actions, run =tickPhysics=, then copy updated positions from layout nodes back into =User.x/y=. Add a =userTargets= map built from pending/active actions: find the file node position for each action target path (hash-based), use that as the attraction target.
+:Tests: Update =layout.test.ts= with a test that verifies user positions change after physics ticks with a target. Add a headless integration test in =main.test.ts= that runs the frame loop for several ticks and asserts user x/y change.
+:Done when: User dots move toward file positions in a running instance.
+:END:
+
+** TODO [#A] Feed Directory And File Positions Through SceneState
+:PROPERTIES:
+:Why: The renderer computes positions via =pathHashPosition=, ignoring the physics layout. Files and directories look static. The =SceneState= type needs to carry layout positions so the renderer can use them.
+:Change: Add an optional =layoutNodes?: LayoutNode[]= field to =SceneState=. In =main.ts=, populate it from =buildLayout= output before calling =renderer.render()=. In =pixi-renderer.ts=, use =scene.layoutNodes= to position objects if present, falling back to hash positions otherwise.
+:Tests: Verify directory/fil nodes have non-hash positions in a headless test after physics steps. Verify =SceneState= type-check passes.
+:Done when: Directories and files settle into simulated positions instead of hash positions.
+:END:
+
+* TODO [#A] Fix Main.ts Control Bugs
+:PROPERTIES:
+:Effort: 0.25d
+:Goal: Connect button works without page reload; pinch zoom uses Camera API.
+:Notes: Two bugs in =main.ts= found during audit.
+:END:
+
+** TODO [#A] Fix Connect Button To Start Source Instead Of Reloading Page
+:PROPERTIES:
+:Why: =main.ts:81= does =window.location.search = ...= which reloads the entire page. Connect should just start the existing source.
+:Change: Replace the page-reload with =source.start()= and update UI state. After =source.stop()=, re-creating a source with a new URL should create a fresh =LogEventSource= from the new input value.
+:Tests: Manual verification: click connect without page reload. Click disconnect then connect again works.
+:Done when: Connecting and disconnecting does not reload the page.
+:END:
+
+** TODO [#A] Fix Pinch Zoom To Use Camera.zoomAt
+:PROPERTIES:
+:Why: =main.ts:178= sets =camera.state.zoom= directly, skipping the centering math in =Camera.zoomAt=. The pinch center point drifts.
+:Change: Replace the direct assignment with =camera.zoomAt(factor, centerX, centerY)= where factor is =dist / initialPinchDist= and center is the midpoint of the two touches. Store =initialPinchZoom= as the camera state at touchstart, compute the target zoom from =initialPinchZoom * factor=, then call =camera.zoomAt(targetZoom / currentZoom, cx, cy)=.
+:Tests: Check that =Camera.zoomAt= is the only code path modifying zoom in =main.ts=.
+:Done when: Pinch zoom centers on the pinch midpoint and does not drift.
+:END:
+
+* TODO [#B] Fix Renderer Bugs
+:PROPERTIES:
+:Effort: 0.25d
+:Goal: HUD updates at proper intervals; directory edges render.
+:Notes: Two renderer bugs found during audit.
+:END:
+
+** TODO [#A] Fix HUD Throttle To Use Time Delta
+:PROPERTIES:
+:Why: =pixi-renderer.ts= uses =now % throttleMs > 0= which blocks updates on almost every frame. HUD text never refreshes.
+:Change: Track =lastHudUpdate= as a variable and check =Date.now() - lastHudUpdate > throttleMs= instead of the modulus check.
+:Tests: Verify HUD text changes when status changes are fed through the render loop.
+:Done when: HUD status text updates at throttled intervals, not frozen.
+:END:
+
+** TODO [#B] Implement drawEdge For Directory Hierarchy Lines
+:PROPERTIES:
+:Why: =drawEdge= in =pixi-renderer.ts= is a no-op that takes parameters but does nothing. Directory-to-subdirectory connector lines are invisible.
+:Change: In =drawEdge=, draw a thin semi-transparent line from (x1,y1) to (x2,y2) using =Graphics= primitives. Reuse edge graphics objects through the cache. Add an =edges= map to =DisplayCache=.
+:Tests: Renderer produces edge lines between parent and child directories.
+:Done when: Directory hierarchy is visible as connecting lines between node circles.
+:END:

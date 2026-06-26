@@ -1,0 +1,152 @@
+#+TITLE: Blossom Gource Visual Alignment Plan
+#+SUBTITLE: Persistent simulation, Gource parity, and advanced graphical effects
+#+DATE: 2026-06-26
+#+KEYWORDS: blossom gource simulation shaders bloom physics
+
+* TODO [#A] Persistent Simulation State
+:PROPERTIES:
+:Effort: 0.75d
+:Goal: Dirs, files, and users relax into equilibrium over time instead of resetting to hash positions each frame.
+:Notes: The current =stepSimulation= rebuilds =LayoutNode[]= from scratch via =buildLayout= every frame, so dir/file positions never accumulate physics. Replace it with a =Simulation= class that owns persistent nodes across frames and syncs incrementally with graph/user changes.
+:END:
+
+** TODO [#A] Create Simulation Class With Persistent LayoutNodes
+:PROPERTIES:
+:Why: Without persistent node state, the force simulation cannot converge — dirs and files jump back to their initial hash positions every frame. Only user dots move because their positions are the only ones written back to domain objects.
+:Change: Create a =Simulation= class in =src/domain/simulation.ts= that owns =nodes: LayoutNode[]= across frames. Expose =sync(dirs: DirectoryNode[], users: User[]): void= to add new nodes for new files/dirs/users and remove stale ones (matched by =id=). When adding a new node, use =pathHashPosition= for the initial position. When a dir's file count changes, update its =radius= in-place without re-creating the node. Expose =tick(): void= to run one physics step on the persistent array. Expose =writeUserPositions(): void= to copy user node positions back into =User= objects. Expose =reset(): void= to clear all nodes.
+:Tests: Unit-test: add dir, sync → nodes created; add second dir, sync → new nodes added, old nodes preserved; modify event adds file, sync → dir radius updated, file node added; delete event removes file, sync → file node removed; tick → positions change; writeUserPositions → User x/y updated; reset → nodes cleared.
+:Done when: =Simulation= replaces =stepSimulation= in main.ts, dirs/files visibly settle over several seconds instead of stuttering.
+:END:
+
+** TODO [#A] Add File-To-Parent Attraction Forces
+:PROPERTIES:
+:Why: Currently =tickPhysics= only computes =dir-dir= and =user-user= forces. File nodes participate in integration but receive zero net force. Files should be attracted to their parent directory so they orbit within it and move with it.
+:Change: In =tickPhysics=, add a =file-dir= force case: for each file node, apply an attraction force toward its parent directory node (found via =node.parent=). Use a spring-like force =k * dist= with a moderate coefficient.
+:Tests: Unit-test: file node moves toward parent dir node after ticks. File stays within parent dir radius.
+:Done when: Files visibly orbit and follow their parent directories as the tree layout shifts.
+:END:
+
+** TODO [#B] Incremental Radius Update On File Count Change
+:PROPERTIES:
+:Why: When files are added or removed, directory radius should grow or shrink smoothly in the persistent simulation. Currently radius is computed only once at node creation.
+:Change: In =Simulation.sync()=, when a directory already exists in the node array, recompute its =radius= from the current file count in the domain =DirectoryNode= (accessible via =node.ref=). Smoothly interpolate toward the new target radius over several frames to avoid snapping.
+:Tests: Add file → dir radius increases; delete file → dir radius decreases.
+:Done when: Directory circles expand and contract as files appear and disappear.
+:END:
+
+* TODO [#A] Gource Visual Behavior Parity
+:PROPERTIES:
+:Effort: 1d
+:Goal: Action beams, file flashes, delete fades, camera momentum match Gource's core visual language.
+:Notes: These are the visual differences most noticeable to anyone who has used Gource.
+:END:
+
+** TODO [#A] Action Beams Point Toward Target File
+:PROPERTIES:
+:Why: Currently beams draw as fixed-length horizontal lines from the user's position (=user.x + beamLen=, always rightward). In Gource, beams stretch from the user toward the exact file they're modifying.
+:Change: In =drawUsers= (pixi-renderer.ts), for each active action, look up the target file's position from =scene.layoutNodes= using =file:<action.path>= as the key. Draw the beam from =(user.x, user.y)= to =(targetX, targetY)= with the beam color. Animate the beam length based on =action.progress=: at progress 0.0 beam is short (only a stub), at 1.0 it reaches the file. For inactive (pending) actions, draw no beam.
+:Tests: Visual smoke test: beams connect user dots to file squares.
+:Done when: Beams visibly connect users to their target files during add/modify/delete actions.
+:END:
+
+** TODO [#A] File Flash/Brighten On Modify
+:PROPERTIES:
+:Why: Gource briefly brightens a file when it's modified to draw attention. Blossom files are static color rectangles with no reaction to events.
+:Change: Add a =flashUntil= timestamp to =FileNode= (or maintain a separate =Map<string, number>= in the renderer for render-only state). When =applyEvent= with action =M= hits a file, set =flashUntil = now + 500ms=. In the renderer, if =Date.now() < flashUntil=, draw the file at 2x brightness or with a white overlay. Use the existing color with increased alpha or a lighter tint.
+:Tests: Pixel verification: file brightness increases temporarily after a modify event.
+:Done when: Files pulse white/brighter for ~500ms after being modified.
+:END:
+
+** TODO [#A] Delete Fade-Out Animation
+:PROPERTIES:
+:Why: =markedForRemoval= is a boolean toggle — files vanish instantly when =pruneEmpty= runs, or disappear from the render list. Gource fades them out over ~1 second.
+:Change: When =applyEvent= with action =D= marks a file for removal, record a =deletedAt= timestamp on the file. In the renderer, compute =alpha = max(0, 1 - (now - deletedAt) / 1000)=. When alpha reaches 0, remove the display object. In =pruneEmpty=, only remove files whose alpha has reached 0. Add a =cleanupDead= method to the graph that removes fully-faded entries.
+:Tests: File alpha decreases over time after delete; file is removed from scene at alpha=0.
+:Done when: Files smoothly fade out over ~1 second after a delete event.
+:END:
+
+** TODO [#B] Smooth Camera With Momentum And Auto-Follow
+:PROPERTIES:
+:Why: Gource's camera has a gentle follow behavior — it drifts toward active action zones with easing. Blossom only has manual pan/zoom.
+:Change: Add a =followTarget?: {x, y}= to =CameraState= (or a separate =CameraController=). Each frame, compute the centroid of all active user positions. If =followTarget= is set, apply an easing toward that centroid: =x += (target.x - x) * 0.05= per frame. Keep the manual pan/zoom as override (clear follow target on user interaction). Add velocity to =Camera= state (=vx, vy=) for momentum and apply damping.
+:Tests: Camera drifts toward user activity centroid when not manually controlled.
+:Done when: Camera gently follows the action zone with inertia.
+:END:
+
+** TODO [#B] Directory Labels In World Space
+:PROPERTIES:
+:Why: Users need to see directory names to understand the tree. Currently only user name labels exist. Gource shows directory names as semi-transparent labels inside directory circles.
+:Change: In the renderer, for each directory node in =layoutNodes=, draw a =Text= label with the directory name centered at =(node.x, node.y)=. Use a smaller font size and lower alpha than user labels. Cache labels in =DisplayCache.dirLabels= for reuse. Show only if directory radius > 40px to avoid tiny unreadable text.
+:Tests: Directory names appear inside directory circles.
+:Done when: Directory names are visible in the scene as readable labels.
+:END:
+
+* TODO [#B] Advanced Graphical Effects
+:PROPERTIES:
+:Effort: 1d
+:Goal: Bloom, particle trails, starfield, and smooth transitions bring Blossom's visual quality closer to Gource's.
+:Notes: PixiJS v8 supports filters via its =Filter= API and custom shaders via =Shader=. Use built-in filters where possible; write minimal custom GLSL only for bloom.
+:END:
+
+** TODO [#A] Bloom/Glow On Active Files And Action Beams
+:PROPERTIES:
+:Why: Active files and beams should emit a soft glow to draw the eye. Gource achieves this via post-processing bloom. PixiJS v8 =BlurFilter= on a separate layer composited with additive blending can approximate bloom without custom shaders.
+:Change: Create a separate =glowContainer= in the renderer, above the world layer but below the HUD. For each file currently being modified (flash active) and each active action beam, draw a copy of the graphic on the glow layer with a =BlurFilter(strength=8, quality=4)= and additive blend mode (=PIXI.BLEND_MODES.ADD=). Clear and repopulate the glow layer each frame. Cache glow graphics separately from normal graphics.
+:Tests: Visual: files and beams have a soft colored halo during actions.
+:Done when: Active elements emit a visible bloom/glow effect.
+:END:
+
+** TODO [#B] Action Particle Trails
+:PROPERTIES:
+:Why: Gource's action beams have particle-like motes traveling along the beam from user to file. This adds texture and motion.
+:Change: Create a =ParticleSystem= class that maintains up to N particles along active beams. Each particle: position (lerped along beam from user to file), alpha (fades with lifetime), size, and color (matches action kind). Allocate a pool in the renderer. Each frame: emit 1-2 new particles per active beam, advance existing particles, cull expired ones. Draw with =Graphics= circles with low alpha. Keep total particle count under ~200.
+:Tests: Particles appear along beams and fade out.
+:Done when: Small colored dots travel along action beams from user toward target file.
+:END:
+
+** TODO [#B] Starfield/Ambient Background
+:PROPERTIES:
+:Why: Gource uses a subtle dark background often with floating particles or a dim starfield. Blossom has a solid color (#0d0d1a) that feels flat.
+:Change: Create a =Starfield= layer with ~100 small, semi-transparent dots randomly distributed in a world-space grid. Animate them with very slow drift (=vx, vy=) and twinkle (=alpha oscillation= via sin). Draw with =Graphics= circles of radius 0.5-1.5 and alpha 0.1-0.4. Place the starfield on the =bgLayer= below everything else, in world space so it pans/zooms with the camera. On reset, re-randomize positions.
+:Tests: Starfield is visible and moves subtly with the camera.
+:Done when: Background has a gentle, living quality with tiny drifting dots.
+:END:
+
+** TODO [#C] Smooth Node Insertion/Removal Transitions
+:PROPERTIES:
+:Why: When files or directories appear or vanish, they pop in/out instantly. Gource has a quick scale/fade transition.
+:Change: In the renderer, when creating a new display object, set =alpha=0= and =scale=0.5=, then tween to =alpha=1= and =scale=1= over 200ms using the ticker. When removing (delete/fade), reverse over 500ms before destroying. Use a simple approach: store =creationTime= on the graphics object and compute alpha/scale from elapsed time in the render loop, avoiding a tweening library.
+:Tests: New files appear with a quick scale-in; deleted files scale out.
+:Done when: Nodes have a subtle in/out transition instead of popping.
+:END:
+
+** TODO [#C] Custom Shader For Glow (Optional)
+:PROPERTIES:
+:Why: The blur-filter bloom approach works but isn't as crisp as a dedicated glow shader. If the filter-based bloom looks muddy, add a custom fragment shader that computes a radial falloff glow.
+:Change: Write a minimal GLSL fragment shader for PixiJS v8 =Shader= that applies a radial vignette+glow. Apply it as a post-processing filter to the glow layer. Fall back to =BlurFilter= if WebGL context doesn't support the custom shader.
+:Tests: Bloom quality comparison; shader compiles without errors.
+:Done when: Bloom looks crisp, or BlurFilter fallback is confirmed acceptable.
+:END:
+
+* TODO [#C] Integration And Polish
+:PROPERTIES:
+:Effort: 0.5d
+:Goal: Wire everything together, verify all effects coexist, profile FPS.
+:Notes: After adding bloom, particles, starfield, transitions, and persistent sim, verify the render loop stays above 30 FPS on mid-range hardware with ~200 nodes.
+:END:
+
+** TODO [#A] Wire Simulation, Beams, Flash, Fade Into Main Loop
+:PROPERTIES:
+:Why: Several independent features need to run in the frame loop in the correct order.
+:Change: In =main.ts=, replace =stepSimulation= call with =sim.sync() + sim.tick() + sim.writeUserPositions()=. Build user targets from persistent simulation nodes. Pass flash/fade timestamps through =SceneState= or maintain them in the renderer. Ensure =frame()= order: drain queue → sync sim → tick users (with file targets) → tick sim → update renderer.
+:Tests: All existing tests pass. Manual: app runs with all effects.
+:Done when: Full frame loop integrates simulation + beams + flash + fade without regressions.
+:END:
+
+** TODO [#B] Profile And Tune
+:PROPERTIES:
+:Why: Bloom, particles, and persistent sim may impact FPS. Measure before merging.
+:Change: Run with ~200 nodes and measure frame time. If > 30ms per frame, profile: reduce particle count, lower blur quality, increase sim tick interval (run physics every other frame), or enable only bloom on active elements. Record baseline and after numbers.
+:Tests: Frame time < 33ms (30 FPS) at 200 nodes on mid-range hardware.
+:Done when: Performance numbers are documented and above 30 FPS.
+:END:

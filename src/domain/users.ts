@@ -52,7 +52,7 @@ export class UserManager {
         }
 
         if (action.active) {
-          action.progress += dt * 0.5; // 2 seconds to complete
+          action.progress += dt * 1.0; // 1 second to complete
 
           if (action.progress >= 1.0) {
             action.progress = 1.0;

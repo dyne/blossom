@@ -17,7 +17,7 @@ export interface StartupResponse {
 }
 
 const DEFAULT_WS = 'ws://localhost:8080/stream';
-const DEFAULT_SPEED = 5; // events per tick
+const DEFAULT_SPEED = 8; // events per tick
 
 /** Parse URL search params into a validated startup response. */
 export function parseStartup(search: string): StartupResponse {
