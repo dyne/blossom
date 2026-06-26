@@ -1,0 +1,8 @@
+Ada|A|lib/util/math.ts
+Ada|A|lib/util/strings.ts
+Ada|A|lib/util/arrays.ts
+Ada|A|lib/core/engine.ts
+Ada|A|lib/core/renderer.ts
+Ada|A|lib/api/client.ts
+Ada|D|lib/util
+Ada|D|lib/core/engine.ts

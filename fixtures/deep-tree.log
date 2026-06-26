@@ -1,0 +1,8 @@
+Ada|A|a/b/c/d/e/deep.ts
+Ada|A|a/b/c/d/shallow.ts
+Ada|A|a/b/c/other.ts
+Ada|A|a/b/extra.ts
+Bob|A|x/y/z/target.ts
+Bob|A|x/y/middle.ts
+Bob|A|x/root.ts
+Admin|A|one/two/three/four/five/six/file.ts

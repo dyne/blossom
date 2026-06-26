@@ -1,0 +1,14 @@
+Ada|A|src/a.ts
+Bob|A|src/b.ts
+Cal|A|src/c.ts
+Dan|A|src/d.ts
+Ada|A|src/a2.ts
+Bob|A|src/b2.ts
+Cal|M|src/c.ts|ff0000
+Dan|M|src/d.ts|00ff00
+Ada|M|src/a.ts|0000ff
+Bob|M|src/b.ts|ffff00
+Cal|A|src/c2.ts
+Dan|A|src/d2.ts
+Ada|A|src/a3.ts
+Bob|A|src/b3.ts
