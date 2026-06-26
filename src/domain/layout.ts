@@ -161,20 +161,49 @@ function addDirNode(
   };
   nodes.push(node);
 
-  // Radial file placement
-  for (let i = 0; i < dir.files.length; i++) {
-    const angle = (i / Math.max(dir.files.length, 1)) * Math.PI * 2;
+  // Gource file ring placement
+  const visibleFiles = dir.files.filter((f) => !f.markedForRemoval);
+  let maxFiles = 1;
+  let diameter = 1;
+  let fileNo = 0;
+  let distance = 0;
+  let remaining = visibleFiles.length;
+
+  for (const file of visibleFiles) {
+    const arc = 1 / maxFiles;
+    const frac = arc * 0.5 + arc * fileNo;
+    const destX = Math.sin(frac * Math.PI * 2);
+    const destY = Math.cos(frac * Math.PI * 2);
+
     nodes.push({
-      id: `file:${dir.files[i]!.path}`,
+      id: `file:${file.path}`,
       kind: 'file',
-      x: node.x + Math.cos(angle) * radius,
-      y: node.y + Math.sin(angle) * radius,
+      x: node.x,
+      y: node.y,
       vx: 0,
       vy: 0,
-      radius: 4,
+      radius: GOURCE.fileRadius,
+      size: GOURCE.fileDiameter,
       parent: node.id,
-      ref: dir.files[i],
+      ref: file,
+      directoryId: node.id,
+      localX: 0,
+      localY: 0,
+      destX,
+      destY,
+      distance,
     });
+
+    fileNo++;
+    remaining--;
+
+    if (fileNo >= maxFiles && remaining > 0) {
+      diameter++;
+      distance += GOURCE.fileDiameter;
+      maxFiles = Math.max(1, Math.floor(diameter * Math.PI));
+      maxFiles = Math.min(maxFiles, remaining);
+      fileNo = 0;
+    }
   }
 
   for (const subDir of dir.dirs) {

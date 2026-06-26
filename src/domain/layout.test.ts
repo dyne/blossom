@@ -79,8 +79,51 @@ describe('buildLayout', () => {
     const dirs: DirectoryNode[] = [makeDir('src', 'src', 5)];
     const nodes = buildLayout(dirs, []);
     const dirNode = nodes.find((n) => n.kind === 'dir')!;
-    // parentRadius for root is 0; but the parentRadius field is set
     expect(typeof dirNode.parentRadius).toBe('number');
+  });
+
+  it('file ring placement: one file at center', () => {
+    const dirs: DirectoryNode[] = [makeDir('src', 'src', 1)];
+    const nodes = buildLayout(dirs, []);
+    const fileNode = nodes.find((n) => n.kind === 'file')!;
+    expect(fileNode.destX).toBeDefined();
+    expect(fileNode.destY).toBeDefined();
+    expect(fileNode.distance).toBe(0); // first ring, distance 0
+  });
+
+  it('file ring placement: files fill first ring then spill to second', () => {
+    const dirs: DirectoryNode[] = [makeDir('src', 'src', 10)];
+    const nodes = buildLayout(dirs, []);
+    const fileNodes = nodes.filter((n) => n.kind === 'file');
+    expect(fileNodes).toHaveLength(10);
+
+    // First ring: maxFiles starts at 1, grows. Check destX/destY are computed
+    for (const f of fileNodes) {
+      expect(f.destX).toBeDefined();
+      expect(f.destY).toBeDefined();
+      expect(f.directoryId).toBe('dir:src');
+    }
+
+    // Files on second ring have distance >= fileDiameter (8)
+    const distances = fileNodes.map((f) => f.distance!);
+    expect(Math.max(...distances)).toBeGreaterThanOrEqual(8);
+  });
+
+  it('file ring placement: files have localX/localY initialised', () => {
+    const dirs: DirectoryNode[] = [makeDir('src', 'src', 3)];
+    const nodes = buildLayout(dirs, []);
+    for (const f of nodes.filter((n) => n.kind === 'file')) {
+      expect(f.localX).toBe(0);
+      expect(f.localY).toBe(0);
+    }
+  });
+
+  it('file ring placement: excludes markedForRemoval files', () => {
+    const dir = makeDir('src', 'src', 3);
+    dir.files[0]!.markedForRemoval = true;
+    const nodes = buildLayout([dir], []);
+    const fileNodes = nodes.filter((n) => n.kind === 'file');
+    expect(fileNodes).toHaveLength(2); // 1 excluded
   });
 
   it('creates user nodes', () => {
