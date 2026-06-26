@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildLayout, pathHashPosition, tickPhysics, stepSimulation, buildUserTargets, updateFilePositions } from './layout';
+import { buildLayout, pathHashPosition, tickPhysics, stepSimulation, buildUserTargets, updateFilePositions, updateSplinePoints } from './layout';
 import type { DirectoryNode, User } from './types';
 
 function makeDir(name: string, path: string, files: number, dirs: DirectoryNode[] = []): DirectoryNode {
@@ -288,6 +288,42 @@ describe('tickPhysics', () => {
     const dist = Math.hypot(childNode.x - parentNode.x, childNode.y - parentNode.y);
     // Child should be at or beyond parent radius
     expect(dist).toBeGreaterThan(parentNode.radius * 0.5);
+  });
+
+  it('spline points: child directories have splinePoint initialized', () => {
+    const child = makeDir('b', 'a/b', 1);
+    const parent = makeDir('a', 'a', 1, [child]);
+    const nodes = buildLayout([parent], []);
+    const childNode = nodes.find((n) => n.id === 'dir:a/b')!;
+    expect(childNode.splinePoint).toBeDefined();
+    expect(childNode.splinePoint!.x).not.toBe(0);
+  });
+
+  it('spline points: root directory has no splinePoint', () => {
+    const dirs: DirectoryNode[] = [makeDir('src', 'src', 1)];
+    const nodes = buildLayout(dirs, []);
+    const rootNode = nodes.find((n) => n.kind === 'dir')!;
+    expect(rootNode.splinePoint).toBeUndefined();
+  });
+
+  it('spline points: converge toward midpoint over ticks', () => {
+    const child = makeDir('b', 'a/b', 1);
+    const parent = makeDir('a', 'a', 1, [child]);
+    const nodes = buildLayout([parent], []);
+    const childNode = nodes.find((n) => n.id === 'dir:a/b')!;
+    const parentNode = nodes.find((n) => n.id === 'dir:a')!;
+
+    const initialSpx = childNode.splinePoint!.x;
+    const initialSpy = childNode.splinePoint!.y;
+
+    for (let i = 0; i < 60; i++) {
+      updateSplinePoints(nodes, 1 / 60);
+    }
+
+    // Spline point should have moved toward the midpoint
+    const midX = childNode.x + (parentNode.x - childNode.x) * 0.5;
+    const midY = childNode.y + (parentNode.y - childNode.y) * 0.5;
+    expect(childNode.splinePoint!.x !== initialSpx || childNode.splinePoint!.y !== initialSpy).toBe(true);
   });
 
   it('performance smoke test: 500 nodes for 60 frames', () => {

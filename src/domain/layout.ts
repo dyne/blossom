@@ -143,11 +143,14 @@ function addDirNode(
   const { radius, parentRadius } = computeDirRadius(dir, area);
   const directVisibleFiles = dir.files.filter((f) => !f.markedForRemoval).length;
 
+  const nodeX = parent ? parent.x + pos.x * 0.1 : pos.x;
+  const nodeY = parent ? parent.y + pos.y * 0.1 : pos.y;
+
   const node: LayoutNode = {
     id: `dir:${dir.path}`,
     kind: 'dir',
-    x: parent ? parent.x + pos.x * 0.1 : pos.x,
-    y: parent ? parent.y + pos.y * 0.1 : pos.y,
+    x: nodeX,
+    y: nodeY,
     vx: 0,
     vy: 0,
     radius,
@@ -158,6 +161,9 @@ function addDirNode(
     visibleFileCount: directVisibleFiles,
     positionInitialized: true,
     changeTimer: Date.now(),
+    splinePoint: parent
+      ? { x: nodeX + (nodeX - parent.x) * 0.5, y: nodeY + (nodeY - parent.y) * 0.5 }
+      : undefined,
   };
   nodes.push(node);
 
@@ -391,6 +397,34 @@ export function tickPhysics(
     const maxCoord = 10000;
     node.x = Math.max(-maxCoord, Math.min(maxCoord, node.x));
     node.y = Math.max(-maxCoord, Math.min(maxCoord, node.y));
+  }
+}
+
+/** Update spline control points for directory edges toward their midpoints. */
+export function updateSplinePoints(nodes: LayoutNode[], dt: number): void {
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+
+  for (const node of nodes) {
+    if (node.kind !== 'dir' || !node.parent || !node.splinePoint) continue;
+    const parent = nodeMap.get(node.parent);
+    if (!parent) continue;
+
+    const midX = node.x + (parent.x - node.x) * 0.5;
+    const midY = node.y + (parent.y - node.y) * 0.5;
+    let dx = midX - node.splinePoint.x;
+    let dy = midY - node.splinePoint.y;
+
+    const dist = Math.hypot(parent.x - node.x, parent.y - node.y);
+    const maxDist = dist * 0.5;
+    const deltaLen = Math.hypot(dx, dy);
+    if (deltaLen > maxDist) {
+      dx = dx / deltaLen * maxDist;
+      dy = dy / deltaLen * maxDist;
+    }
+
+    const t = Math.min(1, dt * 2);
+    node.splinePoint.x += dx * t;
+    node.splinePoint.y += dy * t;
   }
 }
 

@@ -1,5 +1,5 @@
 import type { DirectoryNode, FileNode, User } from './types';
-import { pathHashPosition, type LayoutNode, type PhysicsConfig, type Vec2, buildLayout, tickPhysics, buildUserTargets, updateFilePositions } from './layout';
+import { pathHashPosition, type LayoutNode, type PhysicsConfig, type Vec2, buildLayout, tickPhysics, buildUserTargets, updateFilePositions, updateSplinePoints } from './layout';
 
 const DEFAULT_CONFIG: PhysicsConfig = {
   dt: 1 / 60,
@@ -67,6 +67,7 @@ export class Simulation {
     }
     const targets = buildUserTargets([...users], this.#nodes);
     tickPhysics(this.#nodes, this.#config, targets);
+    updateSplinePoints(this.#nodes, this.#config.dt);
     updateFilePositions(this.#nodes, this.#config.dt);
   }
 
