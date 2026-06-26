@@ -6,11 +6,99 @@
     <title>Blossom</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 100%; height: 100%; overflow: hidden; }
-      canvas { display: block; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #0d0d1a; }
+      #app { position: relative; width: 100%; height: 100%; }
+      canvas { display: block; position: absolute; top: 0; left: 0; }
+
+      #toolbar {
+        position: absolute;
+        top: 8px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+        justify-content: center;
+        z-index: 10;
+        background: rgba(20, 20, 40, 0.9);
+        border: 1px solid rgba(100, 100, 200, 0.3);
+        border-radius: 6px;
+        padding: 6px 10px;
+        max-width: calc(100vw - 16px);
+      }
+
+      #toolbar input, #toolbar button {
+        font-family: monospace;
+        font-size: 12px;
+        background: rgba(40, 40, 60, 0.8);
+        border: 1px solid rgba(100, 100, 200, 0.4);
+        color: #ccc;
+        border-radius: 4px;
+        padding: 4px 8px;
+        outline: none;
+      }
+
+      #toolbar button:hover {
+        background: rgba(60, 60, 100, 0.8);
+        border-color: rgba(120, 120, 255, 0.6);
+      }
+
+      #toolbar button:active {
+        background: rgba(80, 80, 140, 0.9);
+      }
+
+      #toolbar #ws-url {
+        width: 180px;
+        flex-shrink: 1;
+      }
+
+      #toolbar #speed-input {
+        width: 50px;
+        text-align: center;
+      }
+
+      #status-text {
+        color: #888;
+        font-family: monospace;
+        font-size: 10px;
+        align-self: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 150px;
+      }
+
+      @media (max-width: 600px) {
+        #toolbar {
+          gap: 4px;
+          padding: 4px 6px;
+        }
+        #toolbar input, #toolbar button {
+          font-size: 11px;
+          padding: 4px 6px;
+        }
+        #toolbar #ws-url {
+          width: 120px;
+        }
+        #status-text {
+          display: none;
+        }
+      }
     </style>
   </head>
   <body>
+    <div id="app">
+      <canvas id="blossom-canvas"></canvas>
+      <div id="toolbar">
+        <input id="ws-url" type="text" value="ws://localhost:8080/stream" />
+        <button id="btn-connect">connect</button>
+        <button id="btn-pause">pause</button>
+        <button id="btn-fit">fit</button>
+        <button id="btn-reset">reset</button>
+        <input id="speed-input" type="number" value="5" min="1" max="100" />
+        <span id="status-text"></span>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
