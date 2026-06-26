@@ -1,7 +1,6 @@
 import type { ActionKind, LogEvent, User, UserAction } from './types';
 import { hashColor } from './factories';
-
-const MAX_ACTION_LAG = 2.0; // seconds before auto-activation
+import { GOURCE } from './gource-visual-config';
 
 /** Manages users and their actions. */
 export class UserManager {
@@ -36,27 +35,46 @@ export class UserManager {
   }
 
   /** Advance user actions: activate pending, advance progress, complete finished. */
-  tick(dt: number, time: number, getUserPos: (name: string) => { x: number; y: number }): void {
+  tick(
+    dt: number,
+    time: number,
+    getActionTargetPosition: (path: string) => { x: number; y: number } | undefined,
+  ): void {
     for (const user of this.#users.values()) {
-      for (let i = user.actions.length - 1; i >= 0; i--) {
+      let activatedThisTick = false;
+
+      // Iterate oldest-first so the first pending action activates first
+      for (let i = 0; i < user.actions.length; i++) {
         const action = user.actions[i]!;
 
         if (!action.active) {
-          const pos = getUserPos(user.name);
-          const dist = Math.hypot(pos.x - user.x, pos.y - user.y);
+          if (activatedThisTick) continue;
+
+          const target = getActionTargetPosition(action.path);
+          const dist = target
+            ? Math.hypot(target.x - user.x, target.y - user.y)
+            : Infinity;
           const lag = time - (action.pendingSince ?? time);
 
-          if (dist < 50 || lag > MAX_ACTION_LAG) {
+          if (dist < GOURCE.beamDistance || lag > GOURCE.maxFileLag) {
             action.active = true;
+            activatedThisTick = true;
           }
         }
 
         if (action.active) {
-          action.progress += dt * 1.0; // 1 second to complete
+          const pendingCount = user.actions.length;
+          const isForced = action.pendingSince !== undefined
+            && (time - action.pendingSince) > GOURCE.maxFileLag;
+          const effectiveRate = isForced
+            ? GOURCE.forcedActionRate
+            : Math.min(10, GOURCE.baseActionRate * Math.max(1, pendingCount));
+          action.progress += dt * effectiveRate;
 
           if (action.progress >= 1.0) {
             action.progress = 1.0;
             user.actions.splice(i, 1);
+            i--; // adjust index after removal
           }
         }
       }

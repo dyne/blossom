@@ -39,18 +39,19 @@ describe('UserManager', () => {
     expect(user.actions[0]!.progress).toBe(0);
   });
 
-  it('activates pending actions when lag exceeds threshold', () => {
+  it('activates pending actions when lag exceeds maxFileLag', () => {
     const event = createLogEvent(1, 'Ada', 'A', 'main.ts');
     mgr.enqueueAction(event, 0);
 
-    const getUserPos = () => ({ x: 1000, y: 1000 }); // far from user
-    mgr.tick(3.0, 5.0, getUserPos); // large dt, time exceeds lag
+    // Target far away, but lag exceeds 5s — force activation
+    const getActionTargetPosition = () => ({ x: 1000, y: 1000 });
+    mgr.tick(3.0, 6.0, getActionTargetPosition); // time 6s, lag 6s > 5s
 
     const user = mgr.getOrCreate('Ada');
-    expect(user.actions).toHaveLength(0); // completed and removed
+    expect(user.actions).toHaveLength(0); // completed and removed (forced rate is fast)
   });
 
-  it('activates pending action when user is near target', () => {
+  it('activates pending action when user is near target (within beamDistance)', () => {
     const event = createLogEvent(1, 'Ada', 'A', 'main.ts');
     mgr.enqueueAction(event, 0);
 
@@ -58,11 +59,26 @@ describe('UserManager', () => {
     user.x = 100;
     user.y = 100;
 
-    // getUserPos returns position near the user
-    const getUserPos = () => ({ x: 105, y: 100 });
-    mgr.tick(0.1, 0.1, getUserPos);
+    // Target is within beamDistance (100)
+    const getActionTargetPosition = () => ({ x: 120, y: 100 });
+    mgr.tick(0.1, 0.1, getActionTargetPosition);
 
     expect(user.actions[0]!.active).toBe(true);
+  });
+
+  it('keeps action pending when target is far and lag is short', () => {
+    const event = createLogEvent(1, 'Ada', 'A', 'main.ts');
+    mgr.enqueueAction(event, 0);
+
+    const user = mgr.getOrCreate('Ada');
+    user.x = 0;
+    user.y = 0;
+
+    // Target is far (> beamDistance)
+    const getActionTargetPosition = () => ({ x: 500, y: 0 });
+    mgr.tick(0.1, 0.1, getActionTargetPosition);
+
+    expect(user.actions[0]!.active).toBe(false);
   });
 
   it('advances action progress once active', () => {
@@ -73,12 +89,15 @@ describe('UserManager', () => {
     user.x = 0;
     user.y = 0;
 
-    const getUserPos = () => ({ x: 0, y: 0 });
-    mgr.tick(0.5, 0.5, getUserPos); // activate + advance 0.5
+    const getActionTargetPosition = () => ({ x: 0, y: 0 });
+    mgr.tick(0.5, 0.5, getActionTargetPosition); // activate + advance
     expect(user.actions[0]!.active).toBe(true);
+    // baseRate 0.5, dt 0.5 → progress 0.25
+    expect(user.actions[0]!.progress).toBeCloseTo(0.25, 1);
 
-    mgr.tick(0.1, 1.0, getUserPos); // advance another 0.1
-    expect(user.actions[0]!.progress).toBeCloseTo(0.6, 1);
+    mgr.tick(0.1, 1.0, getActionTargetPosition);
+    // additional 0.1 * 0.5 = 0.05 → total 0.30
+    expect(user.actions[0]!.progress).toBeCloseTo(0.30, 1);
   });
 
   it('completes and removes actions when progress reaches 1', () => {
@@ -89,10 +108,25 @@ describe('UserManager', () => {
     user.x = 0;
     user.y = 0;
 
-    const getUserPos = () => ({ x: 0, y: 0 });
-    mgr.tick(2.5, 2.5, getUserPos); // activate + enough progress
+    const getActionTargetPosition = () => ({ x: 0, y: 0 });
+    mgr.tick(4.0, 4.0, getActionTargetPosition); // base rate 0.5, needs ~2s
 
     expect(user.actions).toHaveLength(0);
+  });
+
+  it('forces action rate when lag exceeds maxFileLag', () => {
+    const event = createLogEvent(1, 'Ada', 'A', 'main.ts');
+    mgr.enqueueAction(event, 0);
+
+    const user = mgr.getOrCreate('Ada');
+    user.x = 0;
+    user.y = 0;
+
+    // Lag > 5s, uses forcedActionRate 2
+    const getActionTargetPosition = () => ({ x: 1000, y: 1000 });
+    mgr.tick(1.0, 6.0, getActionTargetPosition); // lag 6s, rate 2, completes in 0.5s
+
+    expect(user.actions).toHaveLength(0); // completed
   });
 
   it('resets all users and actions', () => {
@@ -123,9 +157,27 @@ describe('UserManager', () => {
     user.x = 0;
     user.y = 0;
 
-    const getUserPos = () => ({ x: 0, y: 0 });
-    mgr.tick(2.5, 2.5, getUserPos);
+    const getActionTargetPosition = () => ({ x: 0, y: 0 });
+    mgr.tick(4.0, 4.0, getActionTargetPosition);
 
     expect(user.actions).toHaveLength(0);
+  });
+
+  it('action progress is faster with pending backlog', () => {
+    mgr.enqueueAction(createLogEvent(1, 'Ada', 'A', 'a.ts'), 0);
+    mgr.enqueueAction(createLogEvent(2, 'Ada', 'A', 'b.ts'), 1);
+    mgr.enqueueAction(createLogEvent(3, 'Ada', 'A', 'c.ts'), 2);
+
+    const user = mgr.getOrCreate('Ada');
+    user.x = 0;
+    user.y = 0;
+
+    const getActionTargetPosition = () => ({ x: 0, y: 0 });
+    mgr.tick(0.5, 0.5, getActionTargetPosition);
+
+    // 3 pending actions → effectiveRate = min(10, 0.5 * 3) = 1.5
+    // progress 0.5 * 1.5 = 0.75
+    expect(user.actions[0]!.active).toBe(true);
+    expect(user.actions[0]!.progress).toBeGreaterThan(0.5); // faster than base 0.5
   });
 });

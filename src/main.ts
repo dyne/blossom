@@ -232,13 +232,8 @@ function frame(): void {
       }
     }
 
-    users.tick(1 / 60, performance.now() / 1000, (name) => {
-      const u = users.getOrCreate(name);
-      for (const action of u.actions) {
-        const pos = filePositions.get(action.path);
-        if (pos) return pos;
-      }
-      return { x: u.x, y: u.y };
+    users.tick(1 / 60, performance.now() / 1000, (path) => {
+      return filePositions.get(path);
     });
 
     sim.tick();
