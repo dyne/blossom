@@ -8,16 +8,37 @@ export interface Vec2 {
 
 /** Positioned entity in the layout. */
 export interface LayoutNode {
-  id: string; // unique key: 'dir:path' or 'file:path'
+  id: string;
   kind: 'dir' | 'file' | 'user';
   x: number;
   y: number;
   vx: number;
   vy: number;
   radius: number;
-  parent?: string; // parent directory id
-  // reference to domain object
+  parent?: string;
   ref?: DirectoryNode | FileNode | User;
+
+  // Directory-specific fields
+  parentRadius?: number;
+  area?: number;
+  visibleFileCount?: number;
+  splinePoint?: Vec2;
+  positionInitialized?: boolean;
+  changeTimer?: number;
+
+  // File-specific fields
+  directoryId?: string;
+  localX?: number;
+  localY?: number;
+  destX?: number;
+  destY?: number;
+  distance?: number;
+  size?: number;
+
+  // User-specific fields
+  accelX?: number;
+  accelY?: number;
+  lastAction?: number;
 }
 
 /** Physics configuration. */
@@ -113,6 +134,11 @@ function addDirNode(
     radius,
     parent: parent?.id,
     ref: dir,
+    parentRadius: parent ? parent.radius : 0,
+    area: 0,
+    visibleFileCount: fileCount,
+    positionInitialized: true,
+    changeTimer: Date.now(),
   };
   nodes.push(node);
 

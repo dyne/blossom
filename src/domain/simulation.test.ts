@@ -124,6 +124,22 @@ describe('Simulation', () => {
     expect(sim.nodes).toHaveLength(0);
   });
 
+  it('sync preserves directory-specific fields', () => {
+    sim.sync([makeDir('src', 'src', 3)], []);
+    const dirNode = sim.nodes.find((n) => n.kind === 'dir')!;
+    expect(dirNode.visibleFileCount).toBeGreaterThan(0);
+    expect(dirNode.positionInitialized).toBe(true);
+    expect(typeof dirNode.changeTimer).toBe('number');
+
+    dirNode.positionInitialized = false;
+    dirNode.changeTimer = 999;
+    dirNode.vx = 1;
+    sim.sync([makeDir('src', 'src', 3)], []);
+    const after = sim.nodes.find((n) => n.kind === 'dir')!;
+    expect(after.vx).toBe(1); // velocity preserved
+    expect(after.visibleFileCount).toBeGreaterThan(0); // updated from fresh
+  });
+
   it('sync preserves velocity from previous tick', () => {
     sim.sync([makeDir('src', 'src', 1)], []);
     const node = sim.nodes.find((n) => n.kind === 'dir')!;

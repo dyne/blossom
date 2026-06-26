@@ -76,6 +76,27 @@ describe('buildLayout', () => {
     expect(userNodes[0]!.x).toBe(100);
   });
 
+  it('directory nodes have Gource-specific fields populated', () => {
+    const dirs: DirectoryNode[] = [
+      makeDir('src', 'src', 3),
+    ];
+    const nodes = buildLayout(dirs, []);
+    const dirNode = nodes.find((n) => n.kind === 'dir')!;
+    expect(dirNode.parentRadius).toBe(0); // root dir has no parent
+    expect(dirNode.visibleFileCount).toBeGreaterThan(0);
+    expect(dirNode.positionInitialized).toBe(true);
+    expect(typeof dirNode.changeTimer).toBe('number');
+  });
+
+  it('child directory nodes reference parent radius', () => {
+    const child = makeDir('b', 'a/b', 1);
+    const parent = makeDir('a', 'a', 1, [child]);
+    const nodes = buildLayout([parent], []);
+    const childNode = nodes.find((n) => n.id === 'dir:a/b')!;
+    expect(childNode.parentRadius).toBeDefined();
+    expect(childNode.parentRadius).toBeGreaterThan(0);
+  });
+
   it('creates nested layout from nested directories', () => {
     const child = makeDir('b', 'a/b', 1);
     const parent = makeDir('a', 'a', 1, [child]);

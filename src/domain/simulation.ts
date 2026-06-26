@@ -38,9 +38,18 @@ export class Simulation {
     for (const fn of fresh) {
       const old = existing.get(fn.id);
       if (old) {
-        // Preserve position/velocity from previous tick, update ref and radius
         old.ref = fn.ref;
-        if (old.kind === 'dir') old.radius = fn.radius;
+        if (old.kind === 'dir') {
+          old.radius = fn.radius;
+          old.parentRadius = fn.parentRadius;
+          old.area = fn.area;
+          old.visibleFileCount = fn.visibleFileCount;
+          old.changeTimer = fn.changeTimer;
+        }
+        if (old.kind === 'file') {
+          old.directoryId = fn.directoryId;
+          old.size = fn.size;
+        }
         merged.push(old);
       } else {
         merged.push(fn);
