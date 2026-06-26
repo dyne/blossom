@@ -13,8 +13,9 @@ const startup = parseStartup(window.location.search);
 
 const canvas = document.getElementById('blossom-canvas') as HTMLCanvasElement | null;
 if (!canvas) throw new Error('Canvas not found');
+const canvasElement = canvas;
 
-const renderer = await createPixiRenderer(canvas);
+const renderer = await createPixiRenderer(canvasElement);
 
 const queue = new LiveQueue();
 const graph = new RepositoryGraph();
@@ -143,7 +144,7 @@ function updateStatusText(): void {
 }
 
 // Camera - pointer events for pan/zoom
-canvas.addEventListener('wheel', (e) => {
+canvasElement.addEventListener('wheel', (e) => {
   e.preventDefault();
   const factor = e.deltaY < 0 ? 1.1 : 0.9;
   camera.zoomAt(factor, e.offsetX, e.offsetY);
@@ -153,13 +154,13 @@ let dragging = false;
 let lastDragX = 0;
 let lastDragY = 0;
 
-canvas.addEventListener('pointerdown', (e) => {
+canvasElement.addEventListener('pointerdown', (e) => {
   dragging = true;
   lastDragX = e.clientX;
   lastDragY = e.clientY;
 });
 
-canvas.addEventListener('pointermove', (e) => {
+canvasElement.addEventListener('pointermove', (e) => {
   if (!dragging) return;
   const dx = e.clientX - lastDragX;
   const dy = e.clientY - lastDragY;
@@ -168,10 +169,10 @@ canvas.addEventListener('pointermove', (e) => {
   lastDragY = e.clientY;
 });
 
-canvas.addEventListener('pointerup', () => {
+canvasElement.addEventListener('pointerup', () => {
   dragging = false;
 });
-canvas.addEventListener('pointerleave', () => {
+canvasElement.addEventListener('pointerleave', () => {
   dragging = false;
 });
 
@@ -180,7 +181,7 @@ let initialPinchDist = 0;
 let initialPinchZoom = 0;
 let initialPinchCenter: { x: number; y: number } = { x: 0, y: 0 };
 
-canvas.addEventListener('touchstart', (e) => {
+canvasElement.addEventListener('touchstart', (e) => {
   if (e.touches.length === 2) {
     dragging = false;
     initialPinchDist = Math.hypot(
@@ -195,7 +196,7 @@ canvas.addEventListener('touchstart', (e) => {
   }
 });
 
-canvas.addEventListener('touchmove', (e) => {
+canvasElement.addEventListener('touchmove', (e) => {
   if (e.touches.length === 2) {
     e.preventDefault();
     const dist = Math.hypot(
@@ -213,7 +214,8 @@ canvas.addEventListener('touchmove', (e) => {
 
 // Handle resize
 function onResize(): void {
-  camera.resize(window.innerWidth, window.innerHeight);
+  const rect = canvasElement.getBoundingClientRect();
+  camera.resize(rect.width || window.innerWidth, rect.height || window.innerHeight);
 }
 window.addEventListener('resize', onResize);
 onResize();

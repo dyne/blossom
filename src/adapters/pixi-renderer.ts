@@ -82,6 +82,7 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
 
   const renderer: SceneRenderer = {
     render(scene: SceneState) {
+      syncRendererSize(app, scene);
       applyCamera(scene, worldLayer, glowLayer);
 
       const layoutNodes = scene.layoutNodes ?? [];
@@ -106,6 +107,14 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
   };
 
   return renderer;
+}
+
+function syncRendererSize(app: Application, scene: SceneState): void {
+  const width = Math.max(1, Math.floor(scene.camera.width));
+  const height = Math.max(1, Math.floor(scene.camera.height));
+  if (app.renderer.width !== width || app.renderer.height !== height) {
+    app.renderer.resize(width, height);
+  }
 }
 
 function setupVisibilityObserver(app: Application): void {
@@ -265,6 +274,7 @@ function drawGlow(
   const seen = new Set<string>();
   const n = now();
   const fileNodeMap = new Map(layoutNodes.filter((nd) => nd.kind === 'file').map((nd) => [nd.id, nd]));
+  const userNodeMap = new Map(layoutNodes.filter((nd) => nd.kind === 'user').map((nd) => [nd.id, nd]));
 
   for (const node of layoutNodes) {
     if (node.kind !== 'file') continue;
@@ -286,6 +296,10 @@ function drawGlow(
   }
 
   for (const user of scene.users) {
+    const userNode = userNodeMap.get(`user:${user.name}`);
+    const userX = userNode?.x ?? user.x;
+    const userY = userNode?.y ?? user.y;
+
     for (const action of user.actions) {
       if (!action.active) continue;
       const gid = `glow:beam:${user.name}:${action.path}`;
@@ -296,13 +310,13 @@ function drawGlow(
       const targetFile = fileNodeMap.get(`file:${action.path}`);
       const beamColor = action.kind === 'A' ? 0x44ff44 : action.kind === 'M' ? 0xffff44 : 0xff4444;
       gg.clear();
-      gg.moveTo(user.x, user.y);
+      gg.moveTo(userX, userY);
       if (targetFile) {
-        const dx = targetFile.x - user.x;
-        const dy = targetFile.y - user.y;
-        gg.lineTo(user.x + dx * action.progress, user.y + dy * action.progress);
+        const dx = targetFile.x - userX;
+        const dy = targetFile.y - userY;
+        gg.lineTo(userX + dx * action.progress, userY + dy * action.progress);
       } else {
-        gg.lineTo(user.x + 30, user.y);
+        gg.lineTo(userX + 30, userY);
       }
       gg.stroke({ color: beamColor, width: 4, alpha: 0.35 });
     }
@@ -394,16 +408,20 @@ function drawUsers(
   const seenBeams = new Set<string>();
   const seenLabels = new Set<string>();
   const fileNodeMap = new Map(layoutNodes.filter((n) => n.kind === 'file').map((n) => [n.id, n]));
+  const userNodeMap = new Map(layoutNodes.filter((n) => n.kind === 'user').map((n) => [n.id, n]));
 
   for (const user of scene.users) {
     const uid = `user:${user.name}`; seenUsers.add(uid);
+    const userNode = userNodeMap.get(uid);
+    const userX = userNode?.x ?? user.x;
+    const userY = userNode?.y ?? user.y;
 
     let g = cache.users.get(uid);
     if (!g) { g = new Graphics(); cache.users.set(uid, g); userLayer.addChild(g); }
     const ucolor = Math.round(user.color.r * 255) << 16 | Math.round(user.color.g * 255) << 8 | Math.round(user.color.b * 255);
 
     // User idle fade
-    const idleSeconds = user.lastAction ? (now() / 1000 - user.lastAction) : 0;
+    const idleSeconds = user.lastAction ? (performance.now() / 1000 - user.lastAction) : 0;
     const idleFade = idleSeconds > GOURCE.userIdleTime
       ? Math.max(0, 1 - (idleSeconds - GOURCE.userIdleTime) / GOURCE.fadeDuration)
       : 1;
@@ -420,13 +438,13 @@ function drawUsers(
     // Highlight
     g.circle(-us * 0.15, -us * 0.15, us * 0.25);
     g.fill({ color: 0xffffff, alpha: 0.4 * idleFade });
-    g.x = user.x; g.y = user.y;
+    g.x = userX; g.y = userY;
 
     let label = cache.userLabels.get(uid);
     if (!label) { label = new Text({ text: user.name, style: labelStyle }); cache.userLabels.set(uid, label); worldLabelLayer.addChild(label); }
     seenLabels.add(uid);
     label.text = user.name;
-    label.x = user.x + 8; label.y = user.y - 6;
+    label.x = userX + 8; label.y = userY - 6;
     label.alpha = idleFade;
 
     for (const action of user.actions) {
@@ -441,14 +459,14 @@ function drawUsers(
 
       bg.clear();
       if (targetFile) {
-        const dx = targetFile.x - user.x;
-        const dy = targetFile.y - user.y;
+        const dx = targetFile.x - userX;
+        const dy = targetFile.y - userY;
         const dist = Math.hypot(dx, dy) || 1;
         const nx = -dy / dist;
         const ny = dx / dist;
 
-        const endX = user.x + dx * action.progress;
-        const endY = user.y + dy * action.progress;
+        const endX = userX + dx * action.progress;
+        const endY = userY + dy * action.progress;
 
         // Tapered quad: wide at file end, dim at user end
         const sourceWidth = GOURCE.fileDiameter * 0.3;
@@ -457,25 +475,25 @@ function drawUsers(
         const srcAlpha = 0.1;
         const destAlpha = (1 - action.progress) * 0.8;
 
-        bg.moveTo(user.x + nx * sourceWidth, user.y + ny * sourceWidth);
-        bg.lineTo(user.x - nx * sourceWidth, user.y - ny * sourceWidth);
+        bg.moveTo(userX + nx * sourceWidth, userY + ny * sourceWidth);
+        bg.lineTo(userX - nx * sourceWidth, userY - ny * sourceWidth);
         bg.lineTo(endX - nx * targetWidth, endY - ny * targetWidth);
         bg.lineTo(endX + nx * targetWidth, endY + ny * targetWidth);
         bg.fill({ color: beamColor, alpha: destAlpha });
 
         // Source end glow
-        bg.moveTo(user.x + nx * sourceWidth, user.y + ny * sourceWidth);
-        bg.lineTo(user.x - nx * sourceWidth, user.y - ny * sourceWidth);
-        bg.lineTo(user.x - nx * sourceWidth * 0.5, user.y - ny * sourceWidth * 0.5);
-        bg.lineTo(user.x + nx * sourceWidth * 0.5, user.y + ny * sourceWidth * 0.5);
+        bg.moveTo(userX + nx * sourceWidth, userY + ny * sourceWidth);
+        bg.lineTo(userX - nx * sourceWidth, userY - ny * sourceWidth);
+        bg.lineTo(userX - nx * sourceWidth * 0.5, userY - ny * sourceWidth * 0.5);
+        bg.lineTo(userX + nx * sourceWidth * 0.5, userY + ny * sourceWidth * 0.5);
         bg.fill({ color: beamColor, alpha: srcAlpha });
       } else {
         // Fallback horizontal beam
         const beamLen = 30 + Math.sin(action.progress * Math.PI) * 20;
-        bg.moveTo(user.x, user.y - 1);
-        bg.lineTo(user.x, user.y + 1);
-        bg.lineTo(user.x + beamLen, user.y + 3);
-        bg.lineTo(user.x + beamLen, user.y - 3);
+        bg.moveTo(userX, userY - 1);
+        bg.lineTo(userX, userY + 1);
+        bg.lineTo(userX + beamLen, userY + 3);
+        bg.lineTo(userX + beamLen, userY - 3);
         bg.fill({ color: beamColor, alpha: 0.6 });
       }
     }
