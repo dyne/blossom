@@ -56,3 +56,77 @@ WASM/SDL would preserve more of Gource's C++ code but would carry old IO, window
 | FrameClock        | Provide per-frame callbacks               | requestAnimationFrame |
 | SceneRenderer     | Draw world layers, labels, HUD            | PixiJS v8        |
 | StatusSink        | Report state changes to UI                | DOM              |
+
+## Protocol
+
+Blossom uses a strict newline-separated text protocol over WebSocket. Each line is one event:
+
+```
+username|action|path
+username|action|path|colour
+```
+
+- **username**: Any non-empty string. Empty defaults to `Unknown`.
+- **action**: `A` (add), `M` (modify), or `D` (delete). Empty defaults to `A`.
+- **path**: Repository path (e.g. `src/main.ts`). Must be non-empty.
+- **colour**: Optional hex color `RRGGBB` or `#RRGGBB`.
+
+Timestamps are intentionally excluded. Events are processed in arrival order only.
+
+### Examples
+
+```
+Ada|A|src/main.ts
+Ada|M|src/main.ts|ffcc33
+Ada|D|src/main.ts
+Bob|A|lib/utils/format.ts|#44aaff
+```
+
+## Setup
+
+```bash
+cd blossom
+npm install
+```
+
+## Commands
+
+```bash
+# Development
+npm run dev          # Start Vite dev server (http://localhost:5173)
+
+# Testing
+npm test             # Run unit tests (vitest)
+npm run typecheck    # TypeScript type checking
+
+# Build
+npm run build        # TypeScript compile + Vite production build
+
+# Demo sender
+npm run sender       # Start WebSocket fixture sender on port 8080
+                     # Customize: PORT=9999 FIXTURE=fixtures/nested.log SPEED=100 npm run sender
+```
+
+### Running the demo
+
+Terminal 1 (sender):
+```bash
+npm run sender
+```
+
+Terminal 2 (dev server):
+```bash
+npm run dev
+```
+
+Open `http://localhost:5173` in a browser. Click **connect** to start streaming.
+
+## Known v1 Limitations
+
+- No reconnect on WebSocket failure
+- No seek, rewind, or historical playback
+- No video export
+- No multi-project support
+- No regex filters or captions
+- O(n²) force simulation (adequate for moderate file counts)
+- No Playwright browser integration tests yet
