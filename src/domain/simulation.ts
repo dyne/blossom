@@ -28,8 +28,8 @@ export class Simulation {
   }
 
   /** Sync nodes with the current graph and user state. Preserves existing node positions. */
-  sync(dirs: DirectoryNode[], users: User[]): void {
-    const fresh = buildLayout(dirs, users, this.#config);
+  sync(dirs: DirectoryNode[], users: User[], rootFiles: FileNode[] = []): void {
+    const fresh = buildLayout(dirs, users, this.#config, rootFiles);
     const freshMap = new Map(fresh.map((n) => [n.id, n]));
     const existing = new Map(this.#nodes.map((n) => [n.id, n]));
 
@@ -48,6 +48,10 @@ export class Simulation {
         }
         if (old.kind === 'file') {
           old.directoryId = fn.directoryId;
+          old.parent = fn.parent;
+          old.destX = fn.destX;
+          old.destY = fn.destY;
+          old.distance = fn.distance;
           old.size = fn.size;
         }
         if (old.kind === 'user') {

@@ -47,10 +47,10 @@ describe('Simulation', () => {
     sim.sync([makeDir('src', 'src', 1)], []);
 
     sim.sync([makeDir('src', 'src', 1), makeDir('lib', 'lib', 1)], []);
-    expect(sim.nodes.filter((n) => n.kind === 'dir')).toHaveLength(2);
+    expect(sim.nodes.filter((n) => n.kind === 'dir' && !n.virtual)).toHaveLength(2);
 
     sim.sync([makeDir('src', 'src', 1)], []);
-    expect(sim.nodes.filter((n) => n.kind === 'dir')).toHaveLength(1);
+    expect(sim.nodes.filter((n) => n.kind === 'dir' && !n.virtual)).toHaveLength(1);
     expect(sim.nodes.some((n) => n.id === 'dir:src')).toBe(true);
   });
 
@@ -126,28 +126,28 @@ describe('Simulation', () => {
 
   it('sync preserves directory-specific fields', () => {
     sim.sync([makeDir('src', 'src', 3)], []);
-    const dirNode = sim.nodes.find((n) => n.kind === 'dir')!;
+    const dirNode = sim.nodes.find((n) => n.id === 'dir:src')!;
     expect(dirNode.visibleFileCount).toBeGreaterThan(0);
     expect(dirNode.positionInitialized).toBe(true);
     expect(typeof dirNode.changeTimer).toBe('number');
 
     dirNode.positionInitialized = false;
     dirNode.changeTimer = 999;
-    dirNode.vx = 1;
+    dirNode.x = 50;
     sim.sync([makeDir('src', 'src', 3)], []);
-    const after = sim.nodes.find((n) => n.kind === 'dir')!;
-    expect(after.vx).toBe(1); // velocity preserved
+    const after = sim.nodes.find((n) => n.id === 'dir:src')!;
+    expect(after.x).toBe(50); // position preserved
     expect(after.visibleFileCount).toBeGreaterThan(0); // updated from fresh
   });
 
-  it('sync preserves velocity from previous tick', () => {
+  it('sync keeps directory motion direct instead of preserving velocity', () => {
     sim.sync([makeDir('src', 'src', 1)], []);
-    const node = sim.nodes.find((n) => n.kind === 'dir')!;
+    const node = sim.nodes.find((n) => n.id === 'dir:src')!;
     sim.tick();
-    const vxAfterTick = node.vx;
+    expect(node.vx).toBe(0);
 
     sim.sync([makeDir('src', 'src', 1)], []);
-    const after = sim.nodes.find((n) => n.kind === 'dir')!;
-    expect(after.vx).toBe(vxAfterTick);
+    const after = sim.nodes.find((n) => n.id === 'dir:src')!;
+    expect(after.vx).toBe(0);
   });
 });

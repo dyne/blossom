@@ -76,7 +76,7 @@ describe('RepositoryGraph', () => {
     expect(g.rootFiles[0]!.markedForRemoval).toBe(true);
   });
 
-  it('delete directory recursively removes directory', () => {
+  it('delete directory recursively marks files before pruning', () => {
     g.apply(createLogEvent(1, 'Ada', 'A', 'src/main.ts'));
     g.apply(createLogEvent(2, 'Ada', 'A', 'src/utils/helper.ts'));
     g.apply(createLogEvent(3, 'Ada', 'A', 'lib.ts'));
@@ -84,8 +84,13 @@ describe('RepositoryGraph', () => {
     g.apply(createLogEvent(4, 'Ada', 'D', 'src'));
 
     const src = g.roots.find((d) => d.name === 'src');
-    expect(src).toBeUndefined();
+    expect(src).toBeTruthy();
+    expect(src!.files[0]!.markedForRemoval).toBe(true);
+    expect(src!.dirs[0]!.files[0]!.markedForRemoval).toBe(true);
     expect(g.rootFiles[0]!.name).toBe('lib.ts');
+
+    g.pruneEmpty();
+    expect(g.roots.find((d) => d.name === 'src')).toBeUndefined();
   });
 
   it('prunes empty directories after removals', () => {

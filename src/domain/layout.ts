@@ -26,6 +26,7 @@ export interface LayoutNode {
   splinePoint?: Vec2;
   positionInitialized?: boolean;
   changeTimer?: number;
+  virtual?: boolean;
 
   // File-specific fields
   directoryId?: string;
@@ -109,11 +110,13 @@ export function buildLayout(
   dirs: DirectoryNode[],
   users: User[],
   config: PhysicsConfig = DEFAULT_CONFIG,
+  rootFiles: FileNode[] = [],
 ): LayoutNode[] {
   const nodes: LayoutNode[] = [];
 
-  for (const dir of dirs) {
-    addDirNode(dir, null, nodes, config);
+  if (dirs.length > 0 || rootFiles.length > 0) {
+    const root: DirectoryNode = { name: '', path: '', dirs, files: rootFiles };
+    addDirNode(root, null, nodes, config, true);
   }
 
   for (const user of users) {
@@ -138,17 +141,20 @@ function addDirNode(
   parent: LayoutNode | null,
   nodes: LayoutNode[],
   config: PhysicsConfig,
+  virtual = false,
+  siblingIndex = 0,
+  siblingCount = 1,
 ): void {
-  const pos = pathHashPosition(dir.path);
   const area = computeDirArea(dir);
   const { radius, parentRadius } = computeDirRadius(dir, area);
   const directVisibleFiles = dir.files.filter((f) => !f.markedForRemoval).length;
 
-  const nodeX = parent ? parent.x + pos.x * 0.1 : pos.x;
-  const nodeY = parent ? parent.y + pos.y * 0.1 : pos.y;
+  const initial = parent ? initialChildPosition(dir.path, parent, siblingIndex, siblingCount) : { x: 0, y: 0 };
+  const nodeX = virtual ? 0 : initial.x;
+  const nodeY = virtual ? 0 : initial.y;
 
   const node: LayoutNode = {
-    id: `dir:${dir.path}`,
+    id: virtual ? 'dir:/' : `dir:${dir.path}`,
     kind: 'dir',
     x: nodeX,
     y: nodeY,
@@ -162,6 +168,7 @@ function addDirNode(
     visibleFileCount: directVisibleFiles,
     positionInitialized: true,
     changeTimer: Date.now(),
+    virtual,
     splinePoint: parent
       ? { x: nodeX + (nodeX - parent.x) * 0.5, y: nodeY + (nodeY - parent.y) * 0.5 }
       : undefined,
@@ -169,7 +176,7 @@ function addDirNode(
   nodes.push(node);
 
   // Gource file ring placement
-  const visibleFiles = dir.files.filter((f) => !f.markedForRemoval);
+  const visibleFiles = [...dir.files];
   let maxFiles = 1;
   let diameter = 1;
   let fileNo = 0;
@@ -213,9 +220,24 @@ function addDirNode(
     }
   }
 
-  for (const subDir of dir.dirs) {
-    addDirNode(subDir, node, nodes, config);
+  for (let i = 0; i < dir.dirs.length; i++) {
+    addDirNode(dir.dirs[i]!, node, nodes, config, false, i, dir.dirs.length);
   }
+}
+
+function initialChildPosition(path: string, parent: LayoutNode, siblingIndex = 0, siblingCount = 1): Vec2 {
+  const hashed = pathHashPosition(path, 100);
+  const spreadAngle = (Math.PI * 2 * (siblingIndex + 0.5)) / Math.max(1, siblingCount);
+  const jitter = Math.atan2(hashed.y, hashed.x) * 0.08;
+  const angle = spreadAngle + jitter;
+  const distance = Math.max(
+    GOURCE.fileDiameter * 2,
+    (parent.parentRadius ?? GOURCE.minDirRadius) + GOURCE.minDirRadius + GOURCE.fileDiameter,
+  );
+  return {
+    x: parent.x + Math.cos(angle) * distance,
+    y: parent.y + Math.sin(angle) * distance,
+  };
 }
 
 /** Gource-style directory forces: parent gravity, separation, overlap repulsion, grandparent bias, sibling spacing. */
@@ -253,22 +275,18 @@ function applyDirForces(
       a.y = parent.y + (gpDir.y / len) * 2;
     }
 
-    // Parent gravity: attract toward parent
+    if (a.virtual) continue;
+
+    // Parent gravity: signed force around the Gource target spacing.
     if (parent) {
       const dx = parent.x - a.x;
       const dy = parent.y - a.y;
       const dist = Math.hypot(dx, dy);
       if (dist > 0.001) {
-        const force = GOURCE.forceGravity * dist;
+        const targetDistance = a.radius + (parent.parentRadius ?? GOURCE.minDirRadius);
+        const force = GOURCE.forceGravity * (dist - targetDistance);
         fx[globalI]! += force * (dx / dist);
         fy[globalI]! += force * (dy / dist);
-      }
-
-      // Parent separation: push child outside parent radius
-      if (dist < parent.radius + (a.parentRadius ?? 0) && dist > 0.001) {
-        const pushForce = (parent.radius + (a.parentRadius ?? 0) - dist) * 10;
-        fx[globalI]! -= pushForce * (dx / dist);
-        fy[globalI]! -= pushForce * (dy / dist);
       }
     }
 
@@ -294,6 +312,7 @@ function applyDirForces(
       const dist = Math.hypot(dx, dy);
       if (dist < 0.001) continue;
 
+      if (a.virtual || b.virtual) continue;
       const minDist = a.radius + b.radius;
       if (dist < minDist) {
         const force = (minDist - dist) * 5 / dist;
@@ -403,6 +422,18 @@ export function tickPhysics(
   for (let i = 0; i < n; i++) {
     const node = nodes[i]!;
     if (node.kind === 'file') continue; // files move via updateFilePositions
+    if (node.kind === 'dir') {
+      node.x += fx[i]! * dt;
+      node.y += fy[i]! * dt;
+      node.vx = 0;
+      node.vy = 0;
+      if (node.virtual) {
+        node.x = 0;
+        node.y = 0;
+      }
+      continue;
+    }
+
     node.vx += fx[i]! * dt;
     node.vy += fy[i]! * dt;
 
@@ -504,7 +535,6 @@ export function buildUserTargets(
 
   for (const user of users) {
     for (const action of user.actions) {
-      if (!action.active && action.progress === 0) continue;
       // Find the file node for this action's path
       const fileNode = layoutNodes.find(
         (n) => n.kind === 'file' && n.id === `file:${action.path}`,

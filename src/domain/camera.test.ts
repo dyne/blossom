@@ -13,6 +13,7 @@ describe('Camera', () => {
     expect(cam.state.zoom).toBe(1);
     expect(cam.state.x).toBe(0);
     expect(cam.state.y).toBe(0);
+    expect(cam.state.rotation).toBe(0);
   });
 
   it('pans correctly', () => {
@@ -188,5 +189,11 @@ describe('Camera', () => {
     cam.tickMomentum(1 / 60);
     // Should not move toward follow target when manual
     expect(cam.state.x).not.toBe(999);
+  });
+
+  it('auto-rotation eases toward target angle', () => {
+    cam.setTargetRotation(Math.PI / 2);
+    cam.tickMomentum(1 / 60);
+    expect(cam.state.rotation).toBeGreaterThan(0);
   });
 });

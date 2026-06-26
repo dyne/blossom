@@ -130,13 +130,15 @@ function clearAllCache(cache: DisplayCache, ...parents: Container[]): void {
 
 function applyCamera(scene: SceneState, worldLayer: Container, glowLayer?: Container): void {
   const { camera } = scene;
-  worldLayer.x = -camera.x * camera.zoom + camera.width / 2;
-  worldLayer.y = -camera.y * camera.zoom + camera.height / 2;
+  worldLayer.x = camera.width / 2;
+  worldLayer.y = camera.height / 2;
+  worldLayer.pivot.set(camera.x, camera.y);
   worldLayer.scale.set(camera.zoom);
   worldLayer.rotation = camera.rotation ?? 0;
   if (glowLayer) {
-    glowLayer.x = worldLayer.x;
-    glowLayer.y = worldLayer.y;
+    glowLayer.x = camera.width / 2;
+    glowLayer.y = camera.height / 2;
+    glowLayer.pivot.set(camera.x, camera.y);
     glowLayer.scale.set(camera.zoom);
     glowLayer.rotation = camera.rotation ?? 0;
   }
@@ -180,24 +182,18 @@ function drawFromLayout(
       if (!g) { g = new Graphics(); cache.dirs.set(node.id, g); edgeLayer.addChild(g); }
       const trans = computeTransitions(node.id, cache);
       g.clear();
-      const r = node.radius;
-      g.circle(0, 0, r);
-      g.fill({ color: 0x1a1a3a, alpha: 0.5 * trans.alpha });
-      g.circle(0, 0, r);
-      g.stroke({ color: 0x5555cc, width: 1.5, alpha: 0.6 * trans.alpha });
-      g.circle(0, 0, r * 0.6);
-      g.stroke({ color: 0x4444aa, width: 0.5, alpha: 0.3 * trans.alpha });
       g.x = node.x; g.y = node.y;
       g.scale.set(trans.scale);
 
       const dir = node.ref as { name: string } | undefined;
-      if (dir && node.radius > 40) {
+      if (dir?.name && node.parent && node.splinePoint) {
         const dlid = `dirlabel:${node.id}`;
         seenDirLabels.add(dlid);
         let dl = cache.dirLabels.get(dlid);
         if (!dl) { dl = new Text({ text: dir.name, style: dirLabelStyle }); cache.dirLabels.set(dlid, dl); worldLabelLayer.addChild(dl); }
-        dl.x = node.x - dl.width / 2;
-        dl.y = node.y - node.radius - 14;
+        dl.text = dir.name;
+        dl.x = node.splinePoint.x - dl.width / 2;
+        dl.y = node.splinePoint.y - 8;
         dl.alpha = trans.alpha * 0.7;
       }
     } else if (node.kind === 'file') {
@@ -242,14 +238,6 @@ function drawFromLayout(
       fg.x = node.x; fg.y = node.y;
       fg.scale.set(trans.scale);
 
-      if (node.parent) {
-        const parentNode = nodeMap.get(node.parent);
-        if (parentNode) {
-          const eid = `edge:${node.parent}->${node.id}`;
-          seenEdges.add(eid);
-          drawBranchSpline(cache, edgeLayer, eid, node.x, node.y, parentNode.x, parentNode.y);
-        }
-      }
     }
   }
 

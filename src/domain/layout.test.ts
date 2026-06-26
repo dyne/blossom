@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildLayout, pathHashPosition, tickPhysics, stepSimulation, buildUserTargets, updateFilePositions, updateSplinePoints } from './layout';
-import type { DirectoryNode, User } from './types';
+import type { DirectoryNode, FileNode, User } from './types';
 
 function makeDir(name: string, path: string, files: number, dirs: DirectoryNode[] = []): DirectoryNode {
   return {
@@ -35,10 +35,22 @@ describe('buildLayout', () => {
       makeDir('src', 'src', 2),
     ];
     const nodes = buildLayout(dirs, []);
-    expect(nodes).toHaveLength(3); // 1 dir + 2 files
-    const dirNode = nodes.find((n) => n.kind === 'dir');
+    expect(nodes).toHaveLength(4); // virtual root + 1 dir + 2 files
+    expect(nodes.find((n) => n.id === 'dir:/')?.virtual).toBe(true);
+    const dirNode = nodes.find((n) => n.id === 'dir:src');
     expect(dirNode).toBeTruthy();
     expect(dirNode!.id).toBe('dir:src');
+  });
+
+  it('creates root-level file nodes under the virtual root', () => {
+    const rootFiles: FileNode[] = [
+      { name: 'README.md', path: 'README.md', markedForRemoval: false },
+    ];
+    const nodes = buildLayout([], [], undefined, rootFiles);
+    const root = nodes.find((n) => n.id === 'dir:/')!;
+    const fileNode = nodes.find((n) => n.id === 'file:README.md')!;
+    expect(root.virtual).toBe(true);
+    expect(fileNode.parent).toBe(root.id);
   });
 
   it('places files radially within directories', () => {
@@ -46,7 +58,7 @@ describe('buildLayout', () => {
       makeDir('src', 'src', 3),
     ];
     const nodes = buildLayout(dirs, []);
-    const dirNode = nodes.find((n) => n.kind === 'dir')!;
+    const dirNode = nodes.find((n) => n.id === 'dir:src')!;
     const fileNodes = nodes.filter((n) => n.kind === 'file');
     expect(fileNodes).toHaveLength(3);
 
@@ -118,12 +130,13 @@ describe('buildLayout', () => {
     }
   });
 
-  it('file ring placement: excludes markedForRemoval files', () => {
+  it('file ring placement: keeps markedForRemoval files for fade-out rendering', () => {
     const dir = makeDir('src', 'src', 3);
     dir.files[0]!.markedForRemoval = true;
     const nodes = buildLayout([dir], []);
     const fileNodes = nodes.filter((n) => n.kind === 'file');
-    expect(fileNodes).toHaveLength(2); // 1 excluded
+    expect(fileNodes).toHaveLength(3);
+    expect(fileNodes.some((n) => (n.ref as { markedForRemoval?: boolean }).markedForRemoval)).toBe(true);
   });
 
   it('creates user nodes', () => {
@@ -142,7 +155,7 @@ describe('buildLayout', () => {
       makeDir('src', 'src', 3),
     ];
     const nodes = buildLayout(dirs, []);
-    const dirNode = nodes.find((n) => n.kind === 'dir')!;
+    const dirNode = nodes.find((n) => n.id === 'dir:src')!;
     // parentRadius is the dir's own file-only radius, even for root
     expect(dirNode.parentRadius).toBeGreaterThan(0);
     expect(dirNode.visibleFileCount).toBeGreaterThan(0);
@@ -164,7 +177,8 @@ describe('buildLayout', () => {
     const parent = makeDir('a', 'a', 1, [child]);
     const nodes = buildLayout([parent], []);
     const dirNodes = nodes.filter((n) => n.kind === 'dir');
-    expect(dirNodes).toHaveLength(2);
+    expect(dirNodes).toHaveLength(3);
+    expect(nodes.find((n) => n.id === 'dir:/')).toBeTruthy();
     const bNode = nodes.find((n) => n.id === 'dir:a/b');
     expect(bNode).toBeTruthy();
     expect(bNode!.parent).toBe('dir:a');
@@ -230,7 +244,7 @@ describe('tickPhysics', () => {
   it('file absolute position follows parent directory', () => {
     const dirs: DirectoryNode[] = [makeDir('src', 'src', 1)];
     const nodes = buildLayout(dirs, []);
-    const dirNode = nodes.find((n) => n.kind === 'dir')!;
+    const dirNode = nodes.find((n) => n.id === 'dir:src')!;
     const fileNode = nodes.find((n) => n.kind === 'file')!;
 
     dirNode.x = 500;
@@ -263,7 +277,7 @@ describe('tickPhysics', () => {
     for (let i = 0; i < 100; i++) {
       tickPhysics(nodes);
     }
-    const dirNodes = nodes.filter((n) => n.kind === 'dir');
+    const dirNodes = nodes.filter((n) => n.kind === 'dir' && !n.virtual);
     for (let i = 0; i < dirNodes.length; i++) {
       for (let j = i + 1; j < dirNodes.length; j++) {
         const a = dirNodes[i]!;
@@ -302,7 +316,7 @@ describe('tickPhysics', () => {
   it('spline points: root directory has no splinePoint', () => {
     const dirs: DirectoryNode[] = [makeDir('src', 'src', 1)];
     const nodes = buildLayout(dirs, []);
-    const rootNode = nodes.find((n) => n.kind === 'dir')!;
+    const rootNode = nodes.find((n) => n.id === 'dir:/')!;
     expect(rootNode.splinePoint).toBeUndefined();
   });
 
@@ -390,6 +404,18 @@ describe('buildUserTargets', () => {
       {
         name: 'Ada', color: { r: 1, g: 0, b: 0 }, x: 0, y: 0,
         actions: [{ kind: 'A', path: 'src/file0.ts', progress: 0, active: true }],
+      },
+    ];
+    const nodes = buildLayout([makeDir('src', 'src', 2)], users);
+    const targets = buildUserTargets(users, nodes);
+    expect(targets.has('user:Ada')).toBe(true);
+  });
+
+  it('maps user to pending file positions before beam activation', () => {
+    const users: User[] = [
+      {
+        name: 'Ada', color: { r: 1, g: 0, b: 0 }, x: 0, y: 0,
+        actions: [{ kind: 'A', path: 'src/file0.ts', progress: 0, active: false }],
       },
     ];
     const nodes = buildLayout([makeDir('src', 'src', 2)], users);

@@ -121,10 +121,10 @@ btnFit.addEventListener('click', () => {
   if (nodes.length === 0) return;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const n of nodes) {
-    minX = Math.min(minX, n.x);
-    minY = Math.min(minY, n.y);
-    maxX = Math.max(maxX, n.x);
-    maxY = Math.max(maxY, n.y);
+    minX = Math.min(minX, n.x - n.radius);
+    minY = Math.min(minY, n.y - n.radius);
+    maxX = Math.max(maxX, n.x + n.radius);
+    maxY = Math.max(maxY, n.y + n.radius);
   }
   camera.fitToView({ minX, minY, maxX, maxY });
 });
@@ -135,6 +135,7 @@ btnReset.addEventListener('click', () => {
   users.reset();
   sim.reset();
   eventCount = 0;
+  fittedOnce = false;
 });
 
 function updateStatusText(): void {
@@ -231,7 +232,7 @@ function frame(): void {
 
   if (!paused) {
     queue.tick(speed, applyEvent);
-    sim.sync(graph.roots, users.users);
+    sim.sync(graph.roots, users.users, graph.rootFiles);
 
     const filePositions = new Map<string, { x: number; y: number }>();
     for (const node of sim.nodes) {
@@ -257,7 +258,7 @@ function frame(): void {
             camera.adjust(userBounds, false);
           }
         } else {
-          const dirNodes = sim.nodes.filter((n) => n.kind === 'dir');
+          const dirNodes = sim.nodes.filter((n) => n.kind === 'dir' || n.kind === 'file');
           const dirBounds = camera.computeDirBounds(dirNodes);
           if (dirBounds) {
             camera.adjust(dirBounds, true);
@@ -280,8 +281,8 @@ function frame(): void {
       fittedOnce = true;
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (const n of sim.nodes) {
-        minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
-        maxX = Math.max(maxX, n.x); maxY = Math.max(maxY, n.y);
+        minX = Math.min(minX, n.x - n.radius); minY = Math.min(minY, n.y - n.radius);
+        maxX = Math.max(maxX, n.x + n.radius); maxY = Math.max(maxY, n.y + n.radius);
       }
       camera.fitToView({ minX, minY, maxX, maxY });
     }

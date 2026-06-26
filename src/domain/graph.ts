@@ -33,7 +33,6 @@ export class RepositoryGraph {
         const subDir = this.#root.dirs.find((d) => d.name === name);
         if (subDir) {
           this.#markDirForRemoval(subDir);
-          this.#removeFromList(this.#root.dirs, name);
         } else {
           const file = this.#root.files.find((f) => f.name === name);
           if (file) file.markedForRemoval = true;
@@ -52,7 +51,6 @@ export class RepositoryGraph {
         const subDir = dir.dirs.find((d) => d.name === basename);
         if (subDir) {
           this.#markDirForRemoval(subDir);
-          this.#removeFromList(dir.dirs, basename);
         } else {
           const file = dir.files.find((f) => f.name === basename);
           if (file) file.markedForRemoval = true;
@@ -132,18 +130,13 @@ export class RepositoryGraph {
   }
 
   #markDirForRemoval(dir: DirEntry): void {
+    const deletedAt = Date.now();
     for (const file of dir.files) {
       file.markedForRemoval = true;
+      file.deletedAt = deletedAt;
     }
     for (const subDir of dir.dirs) {
       this.#markDirForRemoval(subDir);
-    }
-  }
-
-  #removeFromList(list: DirEntry[], name: string): void {
-    const idx = list.findIndex((d) => d.name === name);
-    if (idx >= 0) {
-      list.splice(idx, 1);
     }
   }
 

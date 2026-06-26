@@ -10,7 +10,7 @@ const CAMERA_SPEED = 3.0;
 export class Camera {
   state: CameraState = {
     x: 0, y: 0, zoom: 1, width: 800, height: 600,
-    vx: 0, vy: 0,
+    vx: 0, vy: 0, rotation: 0,
   };
 
   #destX = 0;
@@ -36,10 +36,8 @@ export class Camera {
     if (adjustZoom) {
       const worldW = bounds.maxX - bounds.minX;
       const worldH = bounds.maxY - bounds.minY;
-      const padW = worldW * GOURCE.cameraPadding;
-      const padH = worldH * GOURCE.cameraPadding;
-      const zoomX = w / (worldW + padW);
-      const zoomY = h / (worldH + padH);
+      const zoomX = w / Math.max(1, worldW * GOURCE.cameraPadding);
+      const zoomY = h / Math.max(1, worldH * GOURCE.cameraPadding);
       this.#destZoom = Math.min(zoomX, zoomY);
     }
   }
@@ -76,11 +74,9 @@ export class Camera {
     const worldW = bounds.maxX - bounds.minX;
     const worldH = bounds.maxY - bounds.minY;
 
-    const padW = Math.max(worldW * padding * 2, 100);
-    const padH = Math.max(worldH * padding * 2, 100);
-
-    const zoomX = w / (worldW + padW);
-    const zoomY = h / (worldH + padH);
+    const pad = Math.max(1, 1 + padding * 2);
+    const zoomX = w / Math.max(1, worldW * pad);
+    const zoomY = h / Math.max(1, worldH * pad);
     this.state.zoom = this.#clampZoom(Math.min(zoomX, zoomY));
     this.#destZoom = this.state.zoom;
 
