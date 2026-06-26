@@ -34,8 +34,6 @@ export function createWebSocketEventSource(
   }
 
   function connect(): void {
-    if (stopRequested) return;
-    stopRequested = false;
     setState('connecting');
 
     try {

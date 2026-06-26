@@ -216,13 +216,28 @@ if (startup.autoplay) {
 function frame(): void {
   const speed = parseInt(speedInput.value, 10) || 5;
   queue.tick(speed, applyEvent);
+
+  // Run physics first so we know file positions for user targeting
+  const layoutNodes = stepSimulation(graph.roots, users.users);
+
+  // Build map of user name → target file position from pending/active actions
+  const userTargets = new Map<string, { x: number; y: number }>();
+  for (const node of layoutNodes) {
+    if (node.kind === 'file') {
+      userTargets.set(`file:${node.id}`, { x: node.x, y: node.y });
+    }
+  }
+
   users.tick(1 / 60, performance.now() / 1000, (name) => {
     const u = users.getOrCreate(name);
-    return { x: u.x, y: u.y };
+    // Find the first pending/active action target position for this user
+    for (const action of u.actions) {
+      const pos = userTargets.get(`file:file:${action.path}`);
+      if (pos) return pos;
+    }
+    return { x: u.x, y: u.y }; // fallback: user's own position
   });
 
-  // Run physics simulation and get layout positions
-  const layoutNodes = stepSimulation(graph.roots, users.users);
   const scene = buildScene();
   scene.layoutNodes = layoutNodes;
 

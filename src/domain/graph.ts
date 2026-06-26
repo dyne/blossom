@@ -109,13 +109,6 @@ export class RepositoryGraph {
   #ensureFile(parent: DirEntry, name: string, event: LogEvent): FileNode {
     let file = parent.files.find((f) => f.name === name);
     if (!file) {
-      // Check for directory with same name
-      const dirIdx = parent.dirs.findIndex((d) => d.name === name);
-      if (dirIdx >= 0) {
-        // Convert dir to file? No, directory takes precedence
-        // Create a dummy file that won't be rendered
-      }
-
       file = {
         name,
         path: parent.path ? `${parent.path}/${name}` : name,
@@ -128,7 +121,7 @@ export class RepositoryGraph {
   }
 
   #updateFileColor(file: FileNode, event: LogEvent): void {
-    if (event.color) {
+    if (event.color !== undefined) {
       file.color = event.color;
     }
   }

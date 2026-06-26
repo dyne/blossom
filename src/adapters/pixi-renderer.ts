@@ -176,7 +176,7 @@ function drawFromLayout(
         fileLayer.addChild(fg);
       }
       const file = node.ref as import('../domain/types').FileNode | undefined;
-      const color = file?.color
+      const color = file?.color !== undefined
         ? (Math.round(file.color.r * 255) << 16 | Math.round(file.color.g * 255) << 8 | Math.round(file.color.b * 255))
         : 0x44cc44;
       fg.clear();
@@ -274,7 +274,7 @@ function drawDirs(
         fileLayer.addChild(fg);
       }
 
-      const color = file.color
+      const color = file.color !== undefined
         ? (Math.round(file.color.r * 255) << 16 | Math.round(file.color.g * 255) << 8 | Math.round(file.color.b * 255))
         : 0x44cc44;
 
