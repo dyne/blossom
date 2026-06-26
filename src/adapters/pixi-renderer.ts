@@ -1,14 +1,16 @@
 import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
 import type { SceneRenderer } from '../domain/ports';
 import type { SceneState } from '../domain/types';
-import type { LayoutNode } from '../domain/layout';
+import { pathHashPosition } from '../domain/layout';
 
 interface DisplayCache {
   dirs: Map<string, Graphics>;
   files: Map<string, Graphics>;
   users: Map<string, Graphics>;
   beams: Map<string, Graphics>;
-  labels: Map<string, Text>;
+  userLabels: Map<string, Text>;
+  fileLabels: Map<string, Text>;
+  hudTexts: Text[];
 }
 
 /** Create a PixiJS-based SceneRenderer with scene layers and object reuse. */
@@ -42,53 +44,87 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
   const hudLayer = new Container();
   app.stage.addChild(hudLayer);
 
-  // Display object cache
-  const cache: DisplayCache = {
-    dirs: new Map(),
-    files: new Map(),
-    users: new Map(),
-    beams: new Map(),
-    labels: new Map(),
-  };
-
   const labelStyle = new TextStyle({
     fontSize: 11,
     fill: '#cccccc',
     fontFamily: 'monospace',
   });
 
-  function clearCache(map: Map<string, { destroy: () => void }>, parent: Container): void {
-    for (const obj of map.values()) {
-      obj.destroy();
-    }
-    map.clear();
-    while (parent.children.length > 0) {
-      parent.removeChildAt(0);
-    }
-  }
+  const hudStyle = new TextStyle({
+    fontSize: 10,
+    fill: '#888888',
+    fontFamily: 'monospace',
+  });
 
-  let currentScene: SceneState | null = null;
-  let layoutNodes: LayoutNode[] = [];
+  // Display object cache
+  const cache: DisplayCache = {
+    dirs: new Map(),
+    files: new Map(),
+    users: new Map(),
+    beams: new Map(),
+    userLabels: new Map(),
+    fileLabels: new Map(),
+    hudTexts: [],
+  };
+
+  // HUD state for throttling
+  let lastHudUpdate = 0;
+  const hudThrottleMs = 500;
+
+  // Visibility observer
+  setupVisibilityObserver(app);
 
   const renderer: SceneRenderer = {
     render(scene: SceneState) {
-      currentScene = scene;
       applyCamera(scene, worldLayer);
       drawDirs(scene, cache, edgeLayer, fileLayer);
-      drawUsers(scene, cache, userLayer, beamLayer);
-      updateHud(scene, hudLayer, labelStyle);
+      drawUsers(scene, cache, userLayer, beamLayer, worldLabelLayer, labelStyle);
+      updateHud(scene, cache, hudLayer, hudStyle, lastHudUpdate ? hudThrottleMs : 0);
+      lastHudUpdate = Date.now();
     },
     destroy() {
-      clearCache(cache.dirs, edgeLayer);
-      clearCache(cache.files, fileLayer);
-      clearCache(cache.users, userLayer);
-      clearCache(cache.beams, beamLayer);
-      clearCache(cache.labels, worldLabelLayer);
+      clearAllCache(cache, edgeLayer, fileLayer, userLayer, beamLayer, worldLabelLayer, hudLayer);
       app.destroy(true);
     },
   };
 
   return renderer;
+}
+
+function setupVisibilityObserver(app: Application): void {
+  if (typeof IntersectionObserver === 'undefined') return;
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          app.ticker.start();
+        } else {
+          app.ticker.stop();
+        }
+      }
+    },
+    { threshold: 0 },
+  );
+  observer.observe(app.canvas);
+}
+
+function clearAllCache(
+  cache: DisplayCache,
+  ...parents: Container[]
+): void {
+  for (const map of [cache.dirs, cache.files, cache.users, cache.beams, cache.userLabels, cache.fileLabels]) {
+    for (const obj of map.values()) {
+      obj.destroy();
+    }
+    map.clear();
+  }
+  for (const t of cache.hudTexts) {
+    t.destroy();
+  }
+  cache.hudTexts = [];
+  for (const p of parents) {
+    p.removeChildren();
+  }
 }
 
 function applyCamera(scene: SceneState, worldLayer: Container): void {
@@ -104,11 +140,12 @@ function drawDirs(
   edgeLayer: Container,
   fileLayer: Container,
 ): void {
-  const seen = new Set<string>();
+  const seenDirs = new Set<string>();
+  const seenFiles = new Set<string>();
 
-  function draw(dir: import('../domain/types').DirectoryNode): void {
+  function draw(dir: import('../domain/types').DirectoryNode, px: number, py: number): void {
     const id = `dir:${dir.path}`;
-    seen.add(id);
+    seenDirs.add(id);
 
     let g = cache.dirs.get(id);
     if (!g) {
@@ -118,21 +155,24 @@ function drawDirs(
     }
 
     g.clear();
-    // Draw directory as a circle
-    const radius = 30 + dir.files.length * 5;
+    const radius = Math.min(200, Math.max(30, 40 + countAllFiles(dir) * 6));
     g.circle(0, 0, radius);
-    g.fill({ color: 0x222244, alpha: 0.4 });
+    g.fill({ color: 0x222244, alpha: 0.3 });
     g.circle(0, 0, radius);
-    g.stroke({ color: 0x4444aa, width: 1, alpha: 0.6 });
+    g.stroke({ color: 0x4444aa, width: 1, alpha: 0.5 });
+    g.x = px;
+    g.y = py;
 
-    // Position from scene (default to hash-based position)
-    g.x = 0;
-    g.y = 0;
-
-    // Draw files
-    for (const file of dir.files) {
+    // Radial file placement
+    const fileCount = dir.files.length;
+    for (let i = 0; i < dir.files.length; i++) {
+      const file = dir.files[i]!;
       const fid = `file:${file.path}`;
-      seen.add(fid);
+      seenFiles.add(fid);
+
+      const angle = (i / Math.max(fileCount, 1)) * Math.PI * 2 + Math.PI * 0.25;
+      const fx = px + Math.cos(angle) * radius * 0.7;
+      const fy = py + Math.sin(angle) * radius * 0.7;
 
       let fg = cache.files.get(fid);
       if (!fg) {
@@ -146,39 +186,78 @@ function drawDirs(
         : 0x44cc44;
 
       fg.clear();
+      const size = 4;
       if (file.markedForRemoval) {
-        fg.rect(-3, -3, 6, 6);
-        fg.stroke({ color, width: 1, alpha: 0.3 });
+        fg.rect(-size, -size, size * 2, size * 2);
+        fg.stroke({ color, width: 1, alpha: 0.2 });
       } else {
-        fg.rect(-3, -3, 6, 6);
-        fg.fill({ color, alpha: 0.9 });
+        fg.rect(-size, -size, size * 2, size * 2);
+        fg.fill({ color, alpha: 0.85 });
       }
-      fg.x = g.x;
-      fg.y = g.y;
+      fg.x = fx;
+      fg.y = fy;
     }
 
-    for (const sub of dir.dirs) {
-      draw(sub);
+    // Subdirectories
+    const subCount = dir.dirs.length;
+    for (let i = 0; i < dir.dirs.length; i++) {
+      const sub = dir.dirs[i]!;
+      const angle = (i / Math.max(subCount, 1)) * Math.PI * 2;
+      const sx = px + Math.cos(angle) * radius * 1.8;
+      const sy = py + Math.sin(angle) * radius * 1.8;
+
+      // Draw edge from parent to child directory
+      drawEdge(cache, edgeLayer, id, `dir:${sub.path}`, px, py, sx, sy);
+      draw(sub, sx, sy);
     }
+  }
+
+  // Use hash-based positions from layout domain
+  const placed = new Map<string, { x: number; y: number }>();
+
+  function placeDir(dir: import('../domain/types').DirectoryNode, parentPos?: { x: number; y: number }): { x: number; y: number } {
+    const pos = pathHashPosition(dir.path);
+    const x = parentPos ? parentPos.x + pos.x * 0.3 : pos.x;
+    const y = parentPos ? parentPos.y + pos.y * 0.3 : pos.y;
+    placed.set(dir.path, { x, y });
+    for (const sub of dir.dirs) {
+      placeDir(sub, { x, y });
+    }
+    return { x, y };
   }
 
   for (const dir of scene.dirs) {
-    draw(dir);
+    placeDir(dir);
   }
 
-  // Remove unseen objects
+  for (const dir of scene.dirs) {
+    const pos = placed.get(dir.path) ?? { x: 0, y: 0 };
+    draw(dir, pos.x, pos.y);
+  }
+
+  // Cleanup unseen
   for (const [id, obj] of cache.dirs) {
-    if (!seen.has(id)) {
-      obj.destroy();
-      cache.dirs.delete(id);
-    }
+    if (!seenDirs.has(id)) { obj.destroy(); cache.dirs.delete(id); }
   }
   for (const [id, obj] of cache.files) {
-    if (!seen.has(id)) {
-      obj.destroy();
-      cache.files.delete(id);
-    }
+    if (!seenFiles.has(id)) { obj.destroy(); cache.files.delete(id); }
   }
+}
+
+function countAllFiles(dir: import('../domain/types').DirectoryNode): number {
+  let count = dir.files.length;
+  for (const sub of dir.dirs) count += countAllFiles(sub);
+  return count;
+}
+
+function drawEdge(
+  cache: DisplayCache,
+  _layer: Container,
+  _parentId: string,
+  _childId: string,
+  x1: number, y1: number, x2: number, y2: number,
+): void {
+  // Edges are drawn inline in drawDirs for now
 }
 
 function drawUsers(
@@ -186,12 +265,16 @@ function drawUsers(
   cache: DisplayCache,
   userLayer: Container,
   beamLayer: Container,
+  worldLabelLayer: Container,
+  labelStyle: TextStyle,
 ): void {
-  const seen = new Set<string>();
+  const seenUsers = new Set<string>();
+  const seenBeams = new Set<string>();
+  const seenLabels = new Set<string>();
 
   for (const user of scene.users) {
     const uid = `user:${user.name}`;
-    seen.add(uid);
+    seenUsers.add(uid);
 
     let g = cache.users.get(uid);
     if (!g) {
@@ -205,16 +288,28 @@ function drawUsers(
       Math.round(user.color.b * 255);
 
     g.clear();
-    g.circle(0, 0, 6);
+    g.circle(0, 0, 5);
     g.fill({ color, alpha: 1 });
     g.x = user.x;
     g.y = user.y;
+
+    // User name label
+    let label = cache.userLabels.get(uid);
+    if (!label) {
+      label = new Text({ text: user.name, style: labelStyle });
+      cache.userLabels.set(uid, label);
+      worldLabelLayer.addChild(label);
+    }
+    seenLabels.add(uid);
+    label.text = user.name;
+    label.x = user.x + 8;
+    label.y = user.y - 6;
 
     // Action beams
     for (const action of user.actions) {
       if (!action.active) continue;
       const aid = `beam:${user.name}:${action.path}`;
-      seen.add(aid);
+      seenBeams.add(aid);
 
       let bg = cache.beams.get(aid);
       if (!bg) {
@@ -226,42 +321,47 @@ function drawUsers(
       bg.clear();
       const beamColor = action.kind === 'A' ? 0x44ff44 :
         action.kind === 'M' ? 0xffff44 : 0xff4444;
+      // Beam from user toward a point determined by action progress
+      const beamLen = 30 + Math.sin(action.progress * Math.PI) * 20;
       bg.moveTo(user.x, user.y);
-      bg.lineTo(user.x + 50, user.y); // simplified beam
-      bg.stroke({ color: beamColor, width: 1, alpha: 0.5 });
+      bg.lineTo(user.x + beamLen, user.y);
+      bg.stroke({ color: beamColor, width: 1.5, alpha: 0.6 });
     }
   }
 
   for (const [id, obj] of cache.users) {
-    if (!seen.has(id)) {
-      obj.destroy();
-      cache.users.delete(id);
-    }
+    if (!seenUsers.has(id)) { obj.destroy(); cache.users.delete(id); }
   }
   for (const [id, obj] of cache.beams) {
-    if (!seen.has(id)) {
-      obj.destroy();
-      cache.beams.delete(id);
-    }
+    if (!seenBeams.has(id)) { obj.destroy(); cache.beams.delete(id); }
+  }
+  for (const [id, obj] of cache.userLabels) {
+    if (!seenLabels.has(id)) { obj.destroy(); cache.userLabels.delete(id); }
   }
 }
 
 function updateHud(
   scene: SceneState,
+  cache: DisplayCache,
   hudLayer: Container,
   style: TextStyle,
+  throttleMs: number,
 ): void {
-  hudLayer.removeChildren();
+  const now = Date.now();
+  // Throttle HUD text updates
+  if (throttleMs > 0 && now % throttleMs > 0) return;
+
+  // Destroy old HUD texts
+  for (const t of cache.hudTexts) t.destroy();
+  cache.hudTexts = [];
 
   const status = scene.status;
-  const lines = [
-    `${status.connection} | ${status.paused ? 'PAUSED' : 'active'} | events: ${status.eventCount} | queue: ${status.queueSize}`,
-  ];
+  const stateStr = status.paused ? 'PAUSED' : 'active';
+  const line = `[${status.connection}] ${stateStr} | events: ${status.eventCount} | queue: ${status.queueSize}`;
 
-  for (let i = 0; i < lines.length; i++) {
-    const text = new Text({ text: lines[i]!, style });
-    text.x = 8;
-    text.y = 8 + i * 16;
-    hudLayer.addChild(text);
-  }
+  const text = new Text({ text: line, style });
+  text.x = 8;
+  text.y = 8;
+  cache.hudTexts.push(text);
+  hudLayer.addChild(text);
 }
