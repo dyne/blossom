@@ -25,6 +25,7 @@ const sim = new Simulation();
 let eventCount = 0;
 let connectionState: ConnectionState = 'closed';
 let paused = false;
+let fittedOnce = false;
 let source: LogEventSource = createBrowserWebSocketSource(startup.wsUrl);
 
 function createSource(url: string): LogEventSource {
@@ -161,7 +162,7 @@ canvas.addEventListener('pointermove', (e) => {
   if (!dragging) return;
   const dx = e.clientX - lastDragX;
   const dy = e.clientY - lastDragY;
-  camera.pan(-dx, -dy);
+  camera.pan(dx, dy);
   lastDragX = e.clientX;
   lastDragY = e.clientY;
 });
@@ -255,6 +256,17 @@ function frame(): void {
       }
     }
     camera.tickMomentum(1 / 60);
+
+    // Auto-fit on first data
+    if (!fittedOnce && sim.nodes.length > 0) {
+      fittedOnce = true;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const n of sim.nodes) {
+        minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+        maxX = Math.max(maxX, n.x); maxY = Math.max(maxY, n.y);
+      }
+      camera.fitToView({ minX, minY, maxX, maxY });
+    }
   }
 
   const scene = buildScene();

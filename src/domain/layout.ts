@@ -48,7 +48,7 @@ const DEFAULT_CONFIG: PhysicsConfig = {
 };
 
 /** Deterministic hash of a string to a 2D position in [-range, range]. */
-export function pathHashPosition(path: string, range = 500): Vec2 {
+export function pathHashPosition(path: string, range = 200): Vec2 {
   let h1 = 0;
   let h2 = 0;
   for (let i = 0; i < path.length; i++) {
