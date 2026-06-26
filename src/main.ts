@@ -240,14 +240,21 @@ function frame(): void {
     sim.writeUserPositions();
 
     if (!dragging) {
-      let cx = 0, cy = 0, activeCount = 0;
-      for (const u of users.users) {
-        if (u.actions.some((a) => a.active)) {
-          cx += u.x; cy += u.y; activeCount++;
+      // Auto-framing based on activity
+      if (!camera.manualCamera && !camera.manualZoom) {
+        const activeUsers = users.users.filter((u) => u.actions.some((a) => a.active));
+        if (activeUsers.length > 0) {
+          const userBounds = camera.computeUserBounds(activeUsers);
+          if (userBounds) {
+            camera.adjust(userBounds, false);
+          }
+        } else {
+          const dirNodes = sim.nodes.filter((n) => n.kind === 'dir');
+          const dirBounds = camera.computeDirBounds(dirNodes);
+          if (dirBounds) {
+            camera.adjust(dirBounds, true);
+          }
         }
-      }
-      if (activeCount > 0) {
-        camera.setFollowTarget({ x: cx / activeCount, y: cy / activeCount });
       }
     }
     camera.tickMomentum(1 / 60);
