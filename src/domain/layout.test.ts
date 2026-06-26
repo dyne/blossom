@@ -127,6 +127,23 @@ describe('tickPhysics', () => {
     expect(ada.x).toBeGreaterThan(1); // moved toward target
   });
 
+  it('file moves toward parent directory', () => {
+    const dirs: DirectoryNode[] = [makeDir('src', 'src', 1)];
+    const nodes = buildLayout(dirs, []);
+    const fileNode = nodes.find((n) => n.kind === 'file')!;
+
+    fileNode.x = 1000;
+    fileNode.y = 1000;
+
+    for (let i = 0; i < 60; i++) {
+      tickPhysics(nodes);
+    }
+
+    // File should have moved from its displaced position
+    const moved = fileNode.x !== 1000 || fileNode.y !== 1000;
+    expect(moved).toBe(true);
+  });
+
   it('preserves valid coordinates after reset-like empty build', () => {
     const nodes = buildLayout([], []);
     tickPhysics(nodes);

@@ -6,7 +6,7 @@ import { LiveQueue } from './slices/advance-live-queue';
 import { RepositoryGraph } from './slices/mutate-repository-graph';
 import { UserManager } from './domain/users';
 import { Camera } from './domain/camera';
-import { stepSimulation } from './domain/layout';
+import { Simulation } from './domain/simulation';
 import type { ConnectionState, SceneState, LogEvent } from './domain/types';
 
 const startup = parseStartup(window.location.search);
@@ -20,6 +20,7 @@ const queue = new LiveQueue();
 const graph = new RepositoryGraph();
 const users = new UserManager();
 const camera = new Camera();
+const sim = new Simulation();
 
 let eventCount = 0;
 let connectionState: ConnectionState = 'closed';
@@ -106,10 +107,10 @@ btnPause.addEventListener('click', () => {
 });
 
 btnFit.addEventListener('click', () => {
-  const allNodes = stepSimulation(graph.roots, users.users);
-  if (allNodes.length === 0) return;
+  const nodes = sim.nodes;
+  if (nodes.length === 0) return;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const n of allNodes) {
+  for (const n of nodes) {
     minX = Math.min(minX, n.x);
     minY = Math.min(minY, n.y);
     maxX = Math.max(maxX, n.x);
@@ -122,6 +123,7 @@ btnReset.addEventListener('click', () => {
   queue.reset();
   graph.reset();
   users.reset();
+  sim.reset();
   eventCount = 0;
 });
 
@@ -217,29 +219,33 @@ function frame(): void {
   const speed = parseInt(speedInput.value, 10) || 5;
   queue.tick(speed, applyEvent);
 
-  // Run physics first so we know file positions for user targeting
-  const layoutNodes = stepSimulation(graph.roots, users.users);
+  // Sync simulation with current graph and users (preserves positions)
+  sim.sync(graph.roots, users.users);
 
-  // Build map of user name → target file position from pending/active actions
-  const userTargets = new Map<string, { x: number; y: number }>();
-  for (const node of layoutNodes) {
+  // Build map of file path → position for user targeting
+  const filePositions = new Map<string, { x: number; y: number }>();
+  for (const node of sim.nodes) {
     if (node.kind === 'file') {
-      userTargets.set(`file:${node.id}`, { x: node.x, y: node.y });
+      filePositions.set((node.ref as import('./domain/types').FileNode).path, { x: node.x, y: node.y });
     }
   }
 
+  // Advance user actions with file targets for proximity activation
   users.tick(1 / 60, performance.now() / 1000, (name) => {
     const u = users.getOrCreate(name);
-    // Find the first pending/active action target position for this user
     for (const action of u.actions) {
-      const pos = userTargets.get(`file:file:${action.path}`);
+      const pos = filePositions.get(action.path);
       if (pos) return pos;
     }
-    return { x: u.x, y: u.y }; // fallback: user's own position
+    return { x: u.x, y: u.y };
   });
 
+  // Run physics tick
+  sim.tick();
+  sim.writeUserPositions();
+
   const scene = buildScene();
-  scene.layoutNodes = layoutNodes;
+  scene.layoutNodes = sim.nodes;
 
   updateStatusText();
   renderer.render(scene);

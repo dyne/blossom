@@ -215,6 +215,22 @@ export function tickPhysics(
     }
   }
 
+  // File-to-parent attraction
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  for (let i = 0; i < n; i++) {
+    const node = nodes[i]!;
+    if (node.kind !== 'file' || !node.parent) continue;
+    const parent = nodeMap.get(node.parent);
+    if (!parent) continue;
+    const dx = parent.x - node.x;
+    const dy = parent.y - node.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 0.001) continue;
+    const force = config.parentAttraction * 0.5 * dist;
+    fx[i]! += force * (dx / dist);
+    fy[i]! += force * (dy / dist);
+  }
+
   // Integrate
   for (let i = 0; i < n; i++) {
     const node = nodes[i]!;
