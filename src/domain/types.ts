@@ -53,6 +53,8 @@ export interface UserAction {
   path: RepositoryPath;
   progress: number; // 0..1
   active: boolean;
+  pendingSince?: number; // time when enqueued
+  event?: LogEvent; // source event reference
 }
 
 /** Camera state for view transforms. */
