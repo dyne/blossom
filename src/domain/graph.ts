@@ -37,6 +37,7 @@ export class RepositoryGraph {
         } else {
           const file = this.#root.files.find((f) => f.name === name);
           if (file) file.markedForRemoval = true;
+          if (file) file.deletedAt = Date.now();
         }
       } else {
         const file = this.#ensureFile(this.#root, name, event);
@@ -55,6 +56,7 @@ export class RepositoryGraph {
         } else {
           const file = dir.files.find((f) => f.name === basename);
           if (file) file.markedForRemoval = true;
+          if (file) file.deletedAt = Date.now();
         }
       } else {
         const file = this.#ensureFile(dir, basename, event);
@@ -123,6 +125,9 @@ export class RepositoryGraph {
   #updateFileColor(file: FileNode, event: LogEvent): void {
     if (event.color !== undefined) {
       file.color = event.color;
+    }
+    if (event.action === 'M') {
+      file.flashUntil = Date.now() + 500;
     }
   }
 

@@ -1,6 +1,6 @@
 import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
 import type { SceneRenderer } from '../domain/ports';
-import type { SceneState } from '../domain/types';
+import type { SceneState, FileNode } from '../domain/types';
 import type { LayoutNode } from '../domain/layout';
 import { pathHashPosition } from '../domain/layout';
 
@@ -11,9 +11,16 @@ interface DisplayCache {
   users: Map<string, Graphics>;
   beams: Map<string, Graphics>;
   userLabels: Map<string, Text>;
-  fileLabels: Map<string, Text>;
+  dirLabels: Map<string, Text>;
   hudTexts: Text[];
+  fileCreateTimes: Map<string, number>;
 }
+
+function now(): number { return Date.now(); }
+
+const DELETE_FADE_MS = 1000;
+const FLASH_MS = 500;
+const TRANSITION_MS = 250;
 
 /** Create a PixiJS-based SceneRenderer with scene layers and object reuse. */
 export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<SceneRenderer> {
@@ -45,26 +52,21 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
   app.stage.addChild(hudLayer);
 
   const labelStyle = new TextStyle({
-    fontSize: 11,
-    fill: '#cccccc',
-    fontFamily: 'monospace',
+    fontSize: 11, fill: '#cccccc', fontFamily: 'monospace',
   });
-
+  const dirLabelStyle = new TextStyle({
+    fontSize: 10, fill: '#8888aa', fontFamily: 'monospace', align: 'center',
+  });
   const hudStyle = new TextStyle({
-    fontSize: 10,
-    fill: '#888888',
-    fontFamily: 'monospace',
+    fontSize: 10, fill: '#888888', fontFamily: 'monospace',
   });
 
   const cache: DisplayCache = {
-    dirs: new Map(),
-    files: new Map(),
-    edges: new Map(),
-    users: new Map(),
-    beams: new Map(),
-    userLabels: new Map(),
-    fileLabels: new Map(),
+    dirs: new Map(), files: new Map(), edges: new Map(),
+    users: new Map(), beams: new Map(),
+    userLabels: new Map(), dirLabels: new Map(),
     hudTexts: [],
+    fileCreateTimes: new Map(),
   };
 
   let lastHudUpdate = 0;
@@ -78,14 +80,14 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
 
       const layoutNodes = scene.layoutNodes;
       if (layoutNodes && layoutNodes.length > 0) {
-        drawFromLayout(layoutNodes, cache, edgeLayer, fileLayer);
+        drawFromLayout(layoutNodes, cache, edgeLayer, fileLayer, worldLabelLayer, dirLabelStyle);
       } else {
         drawDirs(scene, cache, edgeLayer, fileLayer);
       }
 
-      drawUsers(scene, cache, userLayer, beamLayer, worldLabelLayer, labelStyle);
+      drawUsers(scene, cache, userLayer, beamLayer, worldLabelLayer, labelStyle, layoutNodes ?? []);
       updateHud(scene, cache, hudLayer, hudStyle, lastHudUpdate, hudThrottleMs);
-      lastHudUpdate = Date.now();
+      lastHudUpdate = now();
     },
     destroy() {
       clearAllCache(cache, edgeLayer, fileLayer, userLayer, beamLayer, worldLabelLayer, hudLayer);
@@ -101,11 +103,8 @@ function setupVisibilityObserver(app: Application): void {
   const observer = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
-        if (entry.isIntersecting) {
-          app.ticker.start();
-        } else {
-          app.ticker.stop();
-        }
+        if (entry.isIntersecting) app.ticker.start();
+        else app.ticker.stop();
       }
     },
     { threshold: 0 },
@@ -113,23 +112,15 @@ function setupVisibilityObserver(app: Application): void {
   observer.observe(app.canvas);
 }
 
-function clearAllCache(
-  cache: DisplayCache,
-  ...parents: Container[]
-): void {
-  for (const map of [cache.dirs, cache.files, cache.edges, cache.users, cache.beams, cache.userLabels, cache.fileLabels]) {
-    for (const obj of map.values()) {
-      obj.destroy();
-    }
+function clearAllCache(cache: DisplayCache, ...parents: Container[]): void {
+  for (const map of [cache.dirs, cache.files, cache.edges, cache.users, cache.beams, cache.userLabels, cache.dirLabels]) {
+    for (const obj of map.values()) obj.destroy();
     map.clear();
   }
-  for (const t of cache.hudTexts) {
-    t.destroy();
-  }
+  for (const t of cache.hudTexts) t.destroy();
   cache.hudTexts = [];
-  for (const p of parents) {
-    p.removeChildren();
-  }
+  cache.fileCreateTimes.clear();
+  for (const p of parents) p.removeChildren();
 }
 
 function applyCamera(scene: SceneState, worldLayer: Container): void {
@@ -139,16 +130,38 @@ function applyCamera(scene: SceneState, worldLayer: Container): void {
   worldLayer.scale.set(camera.zoom);
 }
 
+function ensureCreationTime(cache: DisplayCache, id: string): number {
+  let t = cache.fileCreateTimes.get(id);
+  if (t === undefined) {
+    t = now();
+    cache.fileCreateTimes.set(id, t);
+  }
+  return t;
+}
+
+function computeTransitions(id: string, cache: DisplayCache): { alpha: number; scale: number } {
+  const ct = ensureCreationTime(cache, id);
+  const elapsed = now() - ct;
+  const t = Math.min(1, elapsed / TRANSITION_MS);
+  // ease-out
+  const eased = 1 - (1 - t) * (1 - t);
+  return { alpha: eased, scale: 0.5 + eased * 0.5 };
+}
+
 function drawFromLayout(
   layoutNodes: LayoutNode[],
   cache: DisplayCache,
   edgeLayer: Container,
   fileLayer: Container,
+  worldLabelLayer: Container,
+  dirLabelStyle: TextStyle,
 ): void {
   const seenDirs = new Set<string>();
   const seenFiles = new Set<string>();
   const seenEdges = new Set<string>();
+  const seenDirLabels = new Set<string>();
   const nodeMap = new Map(layoutNodes.map((n) => [n.id, n]));
+  const n = now();
 
   for (const node of layoutNodes) {
     if (node.kind === 'dir') {
@@ -159,14 +172,33 @@ function drawFromLayout(
         cache.dirs.set(node.id, g);
         edgeLayer.addChild(g);
       }
+      const t = ensureCreationTime(cache, node.id);
+      const trans = computeTransitions(node.id, cache);
       g.clear();
       const r = node.radius;
       g.circle(0, 0, r);
-      g.fill({ color: 0x222244, alpha: 0.3 });
+      g.fill({ color: 0x222244, alpha: 0.3 * trans.alpha });
       g.circle(0, 0, r);
-      g.stroke({ color: 0x4444aa, width: 1, alpha: 0.5 });
+      g.stroke({ color: 0x4444aa, width: 1, alpha: 0.5 * trans.alpha });
       g.x = node.x;
       g.y = node.y;
+      g.scale.set(trans.scale);
+
+      // Directory label
+      const dir = node.ref as { name: string } | undefined;
+      if (dir && node.radius > 40) {
+        const dlid = `dirlabel:${node.id}`;
+        seenDirLabels.add(dlid);
+        let dl = cache.dirLabels.get(dlid);
+        if (!dl) {
+          dl = new Text({ text: dir.name, style: dirLabelStyle });
+          cache.dirLabels.set(dlid, dl);
+          worldLabelLayer.addChild(dl);
+        }
+        dl.x = node.x - dl.width / 2;
+        dl.y = node.y - node.radius - 14;
+        dl.alpha = trans.alpha * 0.7;
+      }
     } else if (node.kind === 'file') {
       seenFiles.add(node.id);
       let fg = cache.files.get(node.id);
@@ -175,23 +207,39 @@ function drawFromLayout(
         cache.files.set(node.id, fg);
         fileLayer.addChild(fg);
       }
-      const file = node.ref as import('../domain/types').FileNode | undefined;
-      const color = file?.color !== undefined
+      const file = node.ref as FileNode | undefined;
+      fg.clear();
+
+      // Compute alpha from delete fade
+      let fileAlpha = 0.85;
+      if (file?.deletedAt) {
+        const fadeElapsed = n - file.deletedAt;
+        fileAlpha = Math.max(0, 1 - fadeElapsed / DELETE_FADE_MS);
+      }
+
+      // Compute color with flash
+      let colorHex = file?.color !== undefined
         ? (Math.round(file.color.r * 255) << 16 | Math.round(file.color.g * 255) << 8 | Math.round(file.color.b * 255))
         : 0x44cc44;
-      fg.clear();
+      if (file?.flashUntil && n < file.flashUntil) {
+        // Brighten by blending toward white
+        const bright = Math.round(0x44 + (0xff - 0x44) * ((file.flashUntil - n) / FLASH_MS));
+        colorHex = Math.round(bright) << 16 | Math.round(bright) << 8 | Math.round(bright);
+      }
+
+      const trans = computeTransitions(node.id, cache);
       const size = 4;
       if (file?.markedForRemoval) {
         fg.rect(-size, -size, size * 2, size * 2);
-        fg.stroke({ color, width: 1, alpha: 0.2 });
+        fg.stroke({ color: colorHex, width: 1, alpha: fileAlpha * 0.5 * trans.alpha });
       } else {
         fg.rect(-size, -size, size * 2, size * 2);
-        fg.fill({ color, alpha: 0.85 });
+        fg.fill({ color: colorHex, alpha: fileAlpha * trans.alpha });
       }
       fg.x = node.x;
       fg.y = node.y;
+      fg.scale.set(trans.scale);
 
-      // Draw edge from parent dir to file
       if (node.parent) {
         const parentNode = nodeMap.get(node.parent);
         if (parentNode) {
@@ -203,7 +251,6 @@ function drawFromLayout(
     }
   }
 
-  // Draw directory parent-child edges
   for (const node of layoutNodes) {
     if (node.kind === 'dir' && node.parent) {
       const parentNode = nodeMap.get(node.parent);
@@ -215,16 +262,10 @@ function drawFromLayout(
     }
   }
 
-  // Cleanup unseen
-  for (const [id, obj] of cache.dirs) {
-    if (!seenDirs.has(id)) { obj.destroy(); cache.dirs.delete(id); }
-  }
-  for (const [id, obj] of cache.files) {
-    if (!seenFiles.has(id)) { obj.destroy(); cache.files.delete(id); }
-  }
-  for (const [id, obj] of cache.edges) {
-    if (!seenEdges.has(id)) { obj.destroy(); cache.edges.delete(id); }
-  }
+  for (const [id, obj] of cache.dirs) { if (!seenDirs.has(id)) { obj.destroy(); cache.dirs.delete(id); cache.fileCreateTimes.delete(id); } }
+  for (const [id, obj] of cache.files) { if (!seenFiles.has(id)) { obj.destroy(); cache.files.delete(id); cache.fileCreateTimes.delete(id); } }
+  for (const [id, obj] of cache.edges) { if (!seenEdges.has(id)) { obj.destroy(); cache.edges.delete(id); } }
+  for (const [id, obj] of cache.dirLabels) { if (!seenDirLabels.has(id)) { obj.destroy(); cache.dirLabels.delete(id); } }
 }
 
 function drawDirs(
@@ -236,68 +277,59 @@ function drawDirs(
   const seenDirs = new Set<string>();
   const seenFiles = new Set<string>();
   const seenEdges = new Set<string>();
+  const n = now();
 
   function draw(dir: import('../domain/types').DirectoryNode, px: number, py: number): void {
     const id = `dir:${dir.path}`;
     seenDirs.add(id);
-
     let g = cache.dirs.get(id);
-    if (!g) {
-      g = new Graphics();
-      cache.dirs.set(id, g);
-      edgeLayer.addChild(g);
-    }
-
+    if (!g) { g = new Graphics(); cache.dirs.set(id, g); edgeLayer.addChild(g); }
     g.clear();
     const radius = Math.min(200, Math.max(30, 40 + countAllFiles(dir) * 6));
     g.circle(0, 0, radius);
     g.fill({ color: 0x222244, alpha: 0.3 });
     g.circle(0, 0, radius);
     g.stroke({ color: 0x4444aa, width: 1, alpha: 0.5 });
-    g.x = px;
-    g.y = py;
+    g.x = px; g.y = py;
 
-    const fileCount = dir.files.length;
     for (let i = 0; i < dir.files.length; i++) {
       const file = dir.files[i]!;
       const fid = `file:${file.path}`;
       seenFiles.add(fid);
-
-      const angle = (i / Math.max(fileCount, 1)) * Math.PI * 2 + Math.PI * 0.25;
+      const angle = (i / Math.max(dir.files.length, 1)) * Math.PI * 2 + Math.PI * 0.25;
       const fx = px + Math.cos(angle) * radius * 0.7;
       const fy = py + Math.sin(angle) * radius * 0.7;
-
       let fg = cache.files.get(fid);
-      if (!fg) {
-        fg = new Graphics();
-        cache.files.set(fid, fg);
-        fileLayer.addChild(fg);
-      }
+      if (!fg) { fg = new Graphics(); cache.files.set(fid, fg); fileLayer.addChild(fg); }
 
-      const color = file.color !== undefined
+      let fileAlpha = 0.85;
+      if (file.deletedAt) fileAlpha = Math.max(0, 1 - (n - file.deletedAt) / DELETE_FADE_MS);
+
+      let colorHex = file.color !== undefined
         ? (Math.round(file.color.r * 255) << 16 | Math.round(file.color.g * 255) << 8 | Math.round(file.color.b * 255))
         : 0x44cc44;
+      if (file.flashUntil && n < file.flashUntil) {
+        const bright = Math.round(0x44 + (0xff - 0x44) * ((file.flashUntil - n) / FLASH_MS));
+        colorHex = bright << 16 | bright << 8 | bright;
+      }
 
       fg.clear();
       const size = 4;
       if (file.markedForRemoval) {
         fg.rect(-size, -size, size * 2, size * 2);
-        fg.stroke({ color, width: 1, alpha: 0.2 });
+        fg.stroke({ color: colorHex, width: 1, alpha: fileAlpha * 0.5 });
       } else {
         fg.rect(-size, -size, size * 2, size * 2);
-        fg.fill({ color, alpha: 0.85 });
+        fg.fill({ color: colorHex, alpha: fileAlpha });
       }
-      fg.x = fx;
-      fg.y = fy;
+      fg.x = fx; fg.y = fy;
     }
 
-    const subCount = dir.dirs.length;
     for (let i = 0; i < dir.dirs.length; i++) {
       const sub = dir.dirs[i]!;
-      const angle = (i / Math.max(subCount, 1)) * Math.PI * 2;
+      const angle = (i / Math.max(dir.dirs.length, 1)) * Math.PI * 2;
       const sx = px + Math.cos(angle) * radius * 1.8;
       const sy = py + Math.sin(angle) * radius * 1.8;
-
       const eid = `edge:dir:${dir.path}->dir:${sub.path}`;
       seenEdges.add(eid);
       drawEdge(cache, edgeLayer, eid, px, py, sx, sy);
@@ -306,36 +338,23 @@ function drawDirs(
   }
 
   const placed = new Map<string, { x: number; y: number }>();
-
   function placeDir(dir: import('../domain/types').DirectoryNode, parentPos?: { x: number; y: number }): { x: number; y: number } {
     const pos = pathHashPosition(dir.path);
     const x = parentPos ? parentPos.x + pos.x * 0.3 : pos.x;
     const y = parentPos ? parentPos.y + pos.y * 0.3 : pos.y;
     placed.set(dir.path, { x, y });
-    for (const sub of dir.dirs) {
-      placeDir(sub, { x, y });
-    }
+    for (const sub of dir.dirs) placeDir(sub, { x, y });
     return { x, y };
   }
-
-  for (const dir of scene.dirs) {
-    placeDir(dir);
-  }
-
+  for (const dir of scene.dirs) placeDir(dir);
   for (const dir of scene.dirs) {
     const pos = placed.get(dir.path) ?? { x: 0, y: 0 };
     draw(dir, pos.x, pos.y);
   }
 
-  for (const [id, obj] of cache.dirs) {
-    if (!seenDirs.has(id)) { obj.destroy(); cache.dirs.delete(id); }
-  }
-  for (const [id, obj] of cache.files) {
-    if (!seenFiles.has(id)) { obj.destroy(); cache.files.delete(id); }
-  }
-  for (const [id, obj] of cache.edges) {
-    if (!seenEdges.has(id)) { obj.destroy(); cache.edges.delete(id); }
-  }
+  for (const [id, obj] of cache.dirs) { if (!seenDirs.has(id)) { obj.destroy(); cache.dirs.delete(id); } }
+  for (const [id, obj] of cache.files) { if (!seenFiles.has(id)) { obj.destroy(); cache.files.delete(id); } }
+  for (const [id, obj] of cache.edges) { if (!seenEdges.has(id)) { obj.destroy(); cache.edges.delete(id); } }
 }
 
 function countAllFiles(dir: import('../domain/types').DirectoryNode): number {
@@ -345,17 +364,11 @@ function countAllFiles(dir: import('../domain/types').DirectoryNode): number {
 }
 
 function drawEdge(
-  cache: DisplayCache,
-  layer: Container,
-  edgeId: string,
+  cache: DisplayCache, layer: Container, edgeId: string,
   x1: number, y1: number, x2: number, y2: number,
 ): void {
   let g = cache.edges.get(edgeId);
-  if (!g) {
-    g = new Graphics();
-    cache.edges.set(edgeId, g);
-    layer.addChild(g);
-  }
+  if (!g) { g = new Graphics(); cache.edges.set(edgeId, g); layer.addChild(g); }
   g.clear();
   g.moveTo(x1, y1);
   g.lineTo(x2, y2);
@@ -369,38 +382,28 @@ function drawUsers(
   beamLayer: Container,
   worldLabelLayer: Container,
   labelStyle: TextStyle,
+  layoutNodes: LayoutNode[],
 ): void {
   const seenUsers = new Set<string>();
   const seenBeams = new Set<string>();
   const seenLabels = new Set<string>();
+  const fileNodeMap = new Map(layoutNodes.filter((n) => n.kind === 'file').map((n) => [n.id, n]));
 
   for (const user of scene.users) {
     const uid = `user:${user.name}`;
     seenUsers.add(uid);
 
     let g = cache.users.get(uid);
-    if (!g) {
-      g = new Graphics();
-      cache.users.set(uid, g);
-      userLayer.addChild(g);
-    }
-
-    const color = Math.round(user.color.r * 255) << 16 |
-      Math.round(user.color.g * 255) << 8 |
-      Math.round(user.color.b * 255);
-
+    if (!g) { g = new Graphics(); cache.users.set(uid, g); userLayer.addChild(g); }
+    const ucolor = Math.round(user.color.r * 255) << 16 | Math.round(user.color.g * 255) << 8 | Math.round(user.color.b * 255);
     g.clear();
     g.circle(0, 0, 5);
-    g.fill({ color, alpha: 1 });
+    g.fill({ color: ucolor, alpha: 1 });
     g.x = user.x;
     g.y = user.y;
 
     let label = cache.userLabels.get(uid);
-    if (!label) {
-      label = new Text({ text: user.name, style: labelStyle });
-      cache.userLabels.set(uid, label);
-      worldLabelLayer.addChild(label);
-    }
+    if (!label) { label = new Text({ text: user.name, style: labelStyle }); cache.userLabels.set(uid, label); worldLabelLayer.addChild(label); }
     seenLabels.add(uid);
     label.text = user.name;
     label.x = user.x + 8;
@@ -412,54 +415,51 @@ function drawUsers(
       seenBeams.add(aid);
 
       let bg = cache.beams.get(aid);
-      if (!bg) {
-        bg = new Graphics();
-        cache.beams.set(aid, bg);
-        beamLayer.addChild(bg);
-      }
+      if (!bg) { bg = new Graphics(); cache.beams.set(aid, bg); beamLayer.addChild(bg); }
+
+      // Find target file position
+      const targetFile = fileNodeMap.get(`file:${action.path}`);
+      const beamColor = action.kind === 'A' ? 0x44ff44 : action.kind === 'M' ? 0xffff44 : 0xff4444;
 
       bg.clear();
-      const beamColor = action.kind === 'A' ? 0x44ff44 :
-        action.kind === 'M' ? 0xffff44 : 0xff4444;
-      const beamLen = 30 + Math.sin(action.progress * Math.PI) * 20;
-      bg.moveTo(user.x, user.y);
-      bg.lineTo(user.x + beamLen, user.y);
+      if (targetFile) {
+        // Beam from user toward target file, length scaled by progress
+        const dx = targetFile.x - user.x;
+        const dy = targetFile.y - user.y;
+        const tx = user.x + dx * action.progress;
+        const ty = user.y + dy * action.progress;
+        bg.moveTo(user.x, user.y);
+        bg.lineTo(tx, ty);
+      } else {
+        // Fallback: beam grows horizontally
+        const beamLen = 30 + Math.sin(action.progress * Math.PI) * 20;
+        bg.moveTo(user.x, user.y);
+        bg.lineTo(user.x + beamLen, user.y);
+      }
       bg.stroke({ color: beamColor, width: 1.5, alpha: 0.6 });
     }
   }
 
-  for (const [id, obj] of cache.users) {
-    if (!seenUsers.has(id)) { obj.destroy(); cache.users.delete(id); }
-  }
-  for (const [id, obj] of cache.beams) {
-    if (!seenBeams.has(id)) { obj.destroy(); cache.beams.delete(id); }
-  }
-  for (const [id, obj] of cache.userLabels) {
-    if (!seenLabels.has(id)) { obj.destroy(); cache.userLabels.delete(id); }
-  }
+  for (const [id, obj] of cache.users) { if (!seenUsers.has(id)) { obj.destroy(); cache.users.delete(id); } }
+  for (const [id, obj] of cache.beams) { if (!seenBeams.has(id)) { obj.destroy(); cache.beams.delete(id); } }
+  for (const [id, obj] of cache.userLabels) { if (!seenLabels.has(id)) { obj.destroy(); cache.userLabels.delete(id); } }
 }
 
 function updateHud(
-  scene: SceneState,
-  cache: DisplayCache,
-  hudLayer: Container,
-  style: TextStyle,
-  lastUpdate: number,
-  throttleMs: number,
+  scene: SceneState, cache: DisplayCache, hudLayer: Container,
+  style: TextStyle, lastUpdate: number, throttleMs: number,
 ): void {
-  const now = Date.now();
-  if (throttleMs > 0 && (now - lastUpdate) < throttleMs) return;
+  const n = now();
+  if (throttleMs > 0 && (n - lastUpdate) < throttleMs) return;
 
   for (const t of cache.hudTexts) t.destroy();
   cache.hudTexts = [];
 
-  const status = scene.status;
-  const stateStr = status.paused ? 'PAUSED' : 'active';
-  const line = `[${status.connection}] ${stateStr} | events: ${status.eventCount} | queue: ${status.queueSize}`;
+  const s = scene.status;
+  const line = `[${s.connection}] ${s.paused ? 'PAUSED' : 'active'} | e:${s.eventCount} | q:${s.queueSize}`;
 
   const text = new Text({ text: line, style });
-  text.x = 8;
-  text.y = 8;
+  text.x = 8; text.y = 8;
   cache.hudTexts.push(text);
   hudLayer.addChild(text);
 }

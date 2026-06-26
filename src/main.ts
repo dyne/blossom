@@ -244,6 +244,20 @@ function frame(): void {
   sim.tick();
   sim.writeUserPositions();
 
+  // Camera auto-follow: centroid of users with active actions
+  let cx = 0, cy = 0, activeCount = 0;
+  for (const u of users.users) {
+    if (u.actions.some((a) => a.active)) {
+      cx += u.x;
+      cy += u.y;
+      activeCount++;
+    }
+  }
+  if (activeCount > 0) {
+    camera.setFollowTarget({ x: cx / activeCount, y: cy / activeCount });
+  }
+  camera.tickMomentum(1 / 60);
+
   const scene = buildScene();
   scene.layoutNodes = sim.nodes;
 

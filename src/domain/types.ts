@@ -36,6 +36,8 @@ export interface FileNode {
   path: string;
   color?: Color | undefined;
   markedForRemoval: boolean;
+  deletedAt?: number; // timestamp when marked for removal
+  flashUntil?: number; // timestamp when flash effect ends
 }
 
 /** A user in the simulation. */
@@ -64,6 +66,9 @@ export interface CameraState {
   zoom: number;
   width: number;
   height: number;
+  vx: number;
+  vy: number;
+  followTarget?: { x: number; y: number };
 }
 
 /** Connection state for the WebSocket source. */
