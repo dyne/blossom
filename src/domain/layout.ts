@@ -126,6 +126,7 @@ export function buildLayout(
       vy: 0,
       radius: 10,
       ref: user,
+      lastAction: user.lastAction,
     });
   }
 

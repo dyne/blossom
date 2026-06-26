@@ -50,6 +50,9 @@ export class Simulation {
           old.directoryId = fn.directoryId;
           old.size = fn.size;
         }
+        if (old.kind === 'user') {
+          old.lastAction = fn.lastAction;
+        }
         merged.push(old);
       } else {
         merged.push(fn);

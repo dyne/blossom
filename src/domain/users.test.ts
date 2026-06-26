@@ -175,9 +175,25 @@ describe('UserManager', () => {
     const getActionTargetPosition = () => ({ x: 0, y: 0 });
     mgr.tick(0.5, 0.5, getActionTargetPosition);
 
-    // 3 pending actions → effectiveRate = min(10, 0.5 * 3) = 1.5
-    // progress 0.5 * 1.5 = 0.75
     expect(user.actions[0]!.active).toBe(true);
-    expect(user.actions[0]!.progress).toBeGreaterThan(0.5); // faster than base 0.5
+    expect(user.actions[0]!.progress).toBeGreaterThan(0.5);
+  });
+
+  it('tracks lastAction timestamp on enqueue', () => {
+    const event = createLogEvent(1, 'Ada', 'A', 'main.ts');
+    mgr.enqueueAction(event, 100);
+    const user = mgr.getOrCreate('Ada');
+    expect(user.lastAction).toBe(100);
+  });
+
+  it('user idle fade: lastAction updated on new activity', () => {
+    const event1 = createLogEvent(1, 'Ada', 'A', 'a.ts');
+    mgr.enqueueAction(event1, 50);
+    const user = mgr.getOrCreate('Ada');
+    expect(user.lastAction).toBe(50);
+
+    const event2 = createLogEvent(2, 'Ada', 'M', 'b.ts');
+    mgr.enqueueAction(event2, 200);
+    expect(user.lastAction).toBe(200);
   });
 });

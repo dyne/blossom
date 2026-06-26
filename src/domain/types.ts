@@ -47,6 +47,7 @@ export interface User {
   x: number;
   y: number;
   actions: UserAction[];
+  lastAction?: number; // timestamp of last action for idle fade
 }
 
 /** A pending or active action for a user. */

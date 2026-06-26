@@ -23,6 +23,7 @@ export class UserManager {
   /** Enqueue an action for a user from a log event. */
   enqueueAction(event: LogEvent, time: number): void {
     const user = this.getOrCreate(event.user);
+    user.lastAction = time;
     const action: UserAction = {
       kind: event.action,
       path: event.path,
