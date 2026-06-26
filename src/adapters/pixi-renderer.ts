@@ -2,11 +2,12 @@ import { Application, Container, Graphics, Text, TextStyle, BlurFilter } from 'p
 import type { SceneRenderer } from '../domain/ports';
 import type { SceneState, FileNode } from '../domain/types';
 import type { LayoutNode } from '../domain/layout';
+import { GOURCE } from '../domain/gource-visual-config';
 
 interface DisplayCache {
   dirs: Map<string, Graphics>;
   files: Map<string, Graphics>;
-  edges: Map<string, Graphics>;
+  branches: Map<string, Graphics>;
   users: Map<string, Graphics>;
   beams: Map<string, Graphics>;
   glowObjects: Map<string, Graphics>;
@@ -16,77 +17,11 @@ interface DisplayCache {
   fileCreateTimes: Map<string, number>;
 }
 
-const MAX_PARTICLES = 200;
-
-function now(): number { return Date.now(); }
-
 const DELETE_FADE_MS = 1000;
 const FLASH_MS = 500;
 const TRANSITION_MS = 250;
 
-class ParticleSystem {
-  particles: { g: Graphics; x: number; y: number; vx: number; vy: number; life: number; maxLife: number; color: number }[] = [];
-  #pool: Graphics[] = [];
-  #layer: Container;
-
-  constructor(layer: Container) {
-    this.#layer = layer;
-  }
-
-  emit(x: number, y: number, color: number): void {
-    if (this.particles.length >= MAX_PARTICLES) {
-      const old = this.particles.shift();
-      if (old) { old.g.clear(); this.#release(old.g); }
-    }
-    this.particles.push({
-      g: this.#acquire(),
-      x, y,
-      vx: (Math.random() - 0.5) * 0.3,
-      vy: (Math.random() - 0.5) * 0.3,
-      life: Math.random() * 0.5 + 0.3,
-      maxLife: Math.random() * 0.5 + 0.3,
-      color,
-    });
-  }
-
-  update(dt: number): void {
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i]!;
-      p.life -= dt;
-      if (p.life <= 0) {
-        p.g.clear();
-        this.#release(p.g);
-        this.particles.splice(i, 1);
-        continue;
-      }
-      p.x += p.vx;
-      p.y += p.vy;
-      const alpha = (p.life / p.maxLife) * 0.6;
-      p.g.clear();
-      p.g.circle(p.x, p.y, 1.5);
-      p.g.fill({ color: p.color, alpha });
-    }
-  }
-
-  destroy(): void {
-    for (const p of this.particles) p.g.destroy();
-    this.particles.length = 0;
-    for (const g of this.#pool) g.destroy();
-    this.#pool.length = 0;
-  }
-
-  #acquire(): Graphics {
-    const g = this.#pool.pop() ?? new Graphics();
-    this.#layer.addChild(g);
-    return g;
-  }
-
-  #release(g: Graphics): void {
-    g.clear();
-    this.#layer.removeChild(g);
-    this.#pool.push(g);
-  }
-}
+function now(): number { return Date.now(); }
 
 /** Create a PixiJS-based SceneRenderer with scene layers and object reuse. */
 export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<SceneRenderer> {
@@ -94,7 +29,7 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
 
   await app.init({
     canvas,
-    background: '#0d0d1a',
+    background: GOURCE.backgroundColor,
     resizeTo: canvas.parentElement ?? undefined,
     antialias: true,
     resolution: window.devicePixelRatio || 1,
@@ -128,7 +63,7 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
   const hudStyle = new TextStyle({ fontSize: 10, fill: '#888888', fontFamily: 'monospace' });
 
   const cache: DisplayCache = {
-    dirs: new Map(), files: new Map(), edges: new Map(),
+    dirs: new Map(), files: new Map(), branches: new Map(),
     users: new Map(), beams: new Map(), glowObjects: new Map(),
     userLabels: new Map(), dirLabels: new Map(),
     hudTexts: [],
@@ -137,21 +72,6 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
 
   let lastHudUpdate = 0;
   const hudThrottleMs = 500;
-
-  const particleSystem = new ParticleSystem(glowLayer);
-
-  const stars: { x: number; y: number; r: number; a: number; phase: number }[] = [];
-  const starGraphics = new Graphics();
-  bgLayer.addChild(starGraphics);
-  for (let i = 0; i < 120; i++) {
-    stars.push({
-      x: (Math.random() - 0.5) * 4000,
-      y: (Math.random() - 0.5) * 4000,
-      r: Math.random() * 1.2 + 0.3,
-      a: Math.random() * 0.3 + 0.05,
-      phase: Math.random() * Math.PI * 2,
-    });
-  }
 
   setupVisibilityObserver(app);
 
@@ -163,11 +83,10 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
   const renderer: SceneRenderer = {
     render(scene: SceneState) {
       applyCamera(scene, worldLayer, glowLayer);
-      drawStarfield(stars, starGraphics);
 
       const layoutNodes = scene.layoutNodes ?? [];
-      drawFromLayout(layoutNodes, cache, edgeLayer, fileLayer, worldLabelLayer, dirLabelStyle, particleSystem);
-      drawGlow(layoutNodes, scene, cache, glowLayer, particleSystem);
+      drawFromLayout(layoutNodes, cache, edgeLayer, fileLayer, worldLabelLayer, dirLabelStyle);
+      drawGlow(layoutNodes, scene, cache, glowLayer);
       drawUsers(scene, cache, userLayer, beamLayer, worldLabelLayer, labelStyle, layoutNodes);
       updateHud(scene, cache, hudLayer, hudStyle, lastHudUpdate, hudThrottleMs, currentFps);
       lastHudUpdate = now();
@@ -182,7 +101,6 @@ export async function createPixiRenderer(canvas: HTMLCanvasElement): Promise<Sce
     },
     destroy() {
       clearAllCache(cache, edgeLayer, fileLayer, userLayer, beamLayer, worldLabelLayer, hudLayer, glowLayer);
-      particleSystem.destroy();
       app.destroy(true);
     },
   };
@@ -200,7 +118,7 @@ function setupVisibilityObserver(app: Application): void {
 }
 
 function clearAllCache(cache: DisplayCache, ...parents: Container[]): void {
-  for (const map of [cache.dirs, cache.files, cache.edges, cache.users, cache.beams, cache.glowObjects, cache.userLabels, cache.dirLabels]) {
+  for (const map of [cache.dirs, cache.files, cache.branches, cache.users, cache.beams, cache.glowObjects, cache.userLabels, cache.dirLabels]) {
     for (const obj of map.values()) obj.destroy();
     map.clear();
   }
@@ -239,13 +157,7 @@ function computeTransitions(id: string, cache: DisplayCache): { alpha: number; s
 }
 
 function drawStarfield(stars: { x: number; y: number; r: number; a: number; phase: number }[], g: Graphics): void {
-  g.clear();
-  const t = now() * 0.001;
-  for (const s of stars) {
-    const alpha = s.a * (0.5 + 0.5 * Math.sin(t * 0.5 + s.phase));
-    g.circle(s.x, s.y, s.r);
-    g.fill({ color: 0xffffff, alpha });
-  }
+  // removed – Gource uses plain dark background
 }
 
 function drawFromLayout(
@@ -253,7 +165,6 @@ function drawFromLayout(
   cache: DisplayCache,
   edgeLayer: Container, fileLayer: Container,
   worldLabelLayer: Container, dirLabelStyle: TextStyle,
-  particleSystem: ParticleSystem,
 ): void {
   const seenDirs = new Set<string>();
   const seenFiles = new Set<string>();
@@ -308,17 +219,25 @@ function drawFromLayout(
       }
 
       const trans = computeTransitions(node.id, cache);
-      const size = 3;
+      const fd = GOURCE.fileDiameter;
+      const so = GOURCE.shadowOffset;
+
       if (file?.markedForRemoval) {
-        fg.circle(0, 0, size);
+        // Outline only for removed files
+        fg.rect(-fd * 0.25, -fd * 0.33, fd * 0.5, fd * 0.66);
         fg.stroke({ color: colorHex, width: 1.5, alpha: fileAlpha * 0.4 * trans.alpha });
-        fg.circle(0, 0, size * 0.5);
-        fg.stroke({ color: colorHex, width: 0.5, alpha: fileAlpha * 0.2 * trans.alpha });
       } else {
-        fg.circle(0, 0, size);
+        // Shadow
+        fg.rect(-fd * 0.25 + so, -fd * 0.33 + so, fd * 0.5, fd * 0.66);
+        fg.fill({ color: 0x000000, alpha: 0.3 * trans.alpha });
+        // Document body
+        fg.rect(-fd * 0.25, -fd * 0.33, fd * 0.5, fd * 0.66);
         fg.fill({ color: colorHex, alpha: fileAlpha * trans.alpha });
-        fg.circle(0, 0, size * 1.8);
-        fg.stroke({ color: colorHex, width: 0.5, alpha: fileAlpha * 0.25 * trans.alpha });
+        // Folded corner
+        fg.moveTo(fd * 0.15, -fd * 0.33);
+        fg.lineTo(fd * 0.25, -fd * 0.23);
+        fg.lineTo(fd * 0.25, -fd * 0.33);
+        fg.fill({ color: 0x000000, alpha: 0.15 * trans.alpha });
       }
       fg.x = node.x; fg.y = node.y;
       fg.scale.set(trans.scale);
@@ -328,7 +247,7 @@ function drawFromLayout(
         if (parentNode) {
           const eid = `edge:${node.parent}->${node.id}`;
           seenEdges.add(eid);
-          drawEdge(cache, edgeLayer, eid, parentNode.x, parentNode.y, node.x, node.y);
+          drawBranchSpline(cache, edgeLayer, eid, node.x, node.y, parentNode.x, parentNode.y);
         }
       }
     }
@@ -340,21 +259,20 @@ function drawFromLayout(
       if (parentNode) {
         const eid = `edge:${node.parent}->${node.id}`;
         seenEdges.add(eid);
-        drawEdge(cache, edgeLayer, eid, parentNode.x, parentNode.y, node.x, node.y);
+        drawBranchSpline(cache, edgeLayer, eid, node.x, node.y, parentNode.x, parentNode.y, node.splinePoint);
       }
     }
   }
 
   for (const [id, obj] of cache.dirs) { if (!seenDirs.has(id)) { obj.destroy(); cache.dirs.delete(id); cache.fileCreateTimes.delete(id); } }
   for (const [id, obj] of cache.files) { if (!seenFiles.has(id)) { obj.destroy(); cache.files.delete(id); cache.fileCreateTimes.delete(id); } }
-  for (const [id, obj] of cache.edges) { if (!seenEdges.has(id)) { obj.destroy(); cache.edges.delete(id); } }
+  for (const [id, obj] of cache.branches) { if (!seenEdges.has(id)) { obj.destroy(); cache.branches.delete(id); } }
   for (const [id, obj] of cache.dirLabels) { if (!seenDirLabels.has(id)) { obj.destroy(); cache.dirLabels.delete(id); } }
 }
 
 function drawGlow(
   layoutNodes: LayoutNode[], scene: SceneState,
   cache: DisplayCache, glowLayer: Container,
-  particleSystem: ParticleSystem,
 ): void {
   const seen = new Set<string>();
   const n = now();
@@ -405,29 +323,77 @@ function drawGlow(
   for (const [id, obj] of cache.glowObjects) {
     if (!seen.has(id)) { obj.destroy(); cache.glowObjects.delete(id); }
   }
-
-  // Emit particles along active beams
-  for (const user of scene.users) {
-    for (const action of user.actions) {
-      if (!action.active) continue;
-      if (Math.random() > 0.3) continue;
-      const color = action.kind === 'A' ? 0x44ff44 : action.kind === 'M' ? 0xffff44 : 0xff4444;
-      particleSystem.emit(user.x, user.y, color);
-    }
-  }
-  particleSystem.update(1 / 60);
 }
 
-function drawEdge(
-  cache: DisplayCache, layer: Container, edgeId: string,
-  x1: number, y1: number, x2: number, y2: number,
+function drawBranchSpline(
+  cache: DisplayCache, layer: Container,
+  branchId: string,
+  childX: number, childY: number,
+  parentX: number, parentY: number,
+  splinePoint?: { x: number; y: number },
 ): void {
-  let g = cache.edges.get(edgeId);
-  if (!g) { g = new Graphics(); cache.edges.set(edgeId, g); layer.addChild(g); }
+  let g = cache.branches.get(branchId);
+  if (!g) { g = new Graphics(); cache.branches.set(branchId, g); layer.addChild(g); }
+
   g.clear();
-  g.moveTo(x1, y1);
-  g.lineTo(x2, y2);
-  g.stroke({ color: 0x333366, width: 0.5, alpha: 0.4 });
+
+  // Control point for quadratic Bezier
+  const cpx = splinePoint ? splinePoint.x : childX + (parentX - childX) * 0.3;
+  const cpy = splinePoint ? splinePoint.y : childY + (parentY - childY) * 0.3;
+
+  // Sample segments along the curve
+  const segments = 10;
+  const pts: { x: number; y: number }[] = [];
+  for (let s = 0; s <= segments; s++) {
+    const t = s / segments;
+    const u = 1 - t;
+    pts.push({
+      x: u * u * childX + 2 * u * t * cpx + t * t * parentX,
+      y: u * u * childY + 2 * u * t * cpy + t * t * parentY,
+    });
+  }
+
+  const so = GOURCE.shadowOffset;
+  const bw = GOURCE.branchWidth;
+
+  // Shadow strip
+  const shadowColor = 0x000000;
+  for (let s = 1; s < pts.length; s++) {
+    const from = pts[s - 1]!;
+    const to = pts[s]!;
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const perpLen = Math.hypot(dx, dy) || 1;
+    const nx = -dy / perpLen;
+    const ny = dx / perpLen;
+
+    const alpha = 1 - (s / segments) * 0.7;
+
+    g.moveTo(from.x + nx * bw * 0.5 + so, from.y + ny * bw * 0.5 + so);
+    g.lineTo(from.x - nx * bw * 0.5 + so, from.y - ny * bw * 0.5 + so);
+    g.lineTo(to.x - nx * bw * 0.5 + so, to.y - ny * bw * 0.5 + so);
+    g.lineTo(to.x + nx * bw * 0.5 + so, to.y + ny * bw * 0.5 + so);
+    g.fill({ color: shadowColor, alpha: alpha * 0.3 });
+  }
+
+  // Main branch strip with fading alpha
+  for (let s = 1; s < pts.length; s++) {
+    const from = pts[s - 1]!;
+    const to = pts[s]!;
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const perpLen = Math.hypot(dx, dy) || 1;
+    const nx = -dy / perpLen;
+    const ny = dx / perpLen;
+
+    const alpha = 1 - (s / segments) * 0.7;
+
+    g.moveTo(from.x + nx * bw * 0.5, from.y + ny * bw * 0.5);
+    g.lineTo(from.x - nx * bw * 0.5, from.y - ny * bw * 0.5);
+    g.lineTo(to.x - nx * bw * 0.5, to.y - ny * bw * 0.5);
+    g.lineTo(to.x + nx * bw * 0.5, to.y + ny * bw * 0.5);
+    g.fill({ color: 0x334466, alpha: alpha * 0.7 });
+  }
 }
 
 function drawUsers(
@@ -447,11 +413,25 @@ function drawUsers(
     let g = cache.users.get(uid);
     if (!g) { g = new Graphics(); cache.users.set(uid, g); userLayer.addChild(g); }
     const ucolor = Math.round(user.color.r * 255) << 16 | Math.round(user.color.g * 255) << 8 | Math.round(user.color.b * 255);
+
+    // User idle fade
+    const idleSeconds = user.lastAction ? (now() / 1000 - user.lastAction) : 0;
+    const idleFade = idleSeconds > GOURCE.userIdleTime
+      ? Math.max(0, 1 - (idleSeconds - GOURCE.userIdleTime) / GOURCE.fadeDuration)
+      : 1;
+
+    const us = GOURCE.userSize;
+    const so = GOURCE.shadowOffset;
     g.clear();
-    g.circle(0, 0, 7);
-    g.fill({ color: ucolor, alpha: 0.9 });
-    g.circle(0, 0, 3);
-    g.fill({ color: 0xffffff, alpha: 0.35 });
+    // Shadow
+    g.circle(so, so, us * 0.5);
+    g.fill({ color: 0x000000, alpha: 0.3 * idleFade });
+    // Body
+    g.circle(0, 0, us * 0.5);
+    g.fill({ color: ucolor, alpha: 0.9 * idleFade });
+    // Highlight
+    g.circle(-us * 0.15, -us * 0.15, us * 0.25);
+    g.fill({ color: 0xffffff, alpha: 0.4 * idleFade });
     g.x = user.x; g.y = user.y;
 
     let label = cache.userLabels.get(uid);
@@ -459,6 +439,7 @@ function drawUsers(
     seenLabels.add(uid);
     label.text = user.name;
     label.x = user.x + 8; label.y = user.y - 6;
+    label.alpha = idleFade;
 
     for (const action of user.actions) {
       if (!action.active) continue;
@@ -468,20 +449,47 @@ function drawUsers(
       if (!bg) { bg = new Graphics(); cache.beams.set(aid, bg); beamLayer.addChild(bg); }
 
       const targetFile = fileNodeMap.get(`file:${action.path}`);
-      const beamColor = action.kind === 'A' ? 0x44ff44 : action.kind === 'M' ? 0xffff44 : 0xff4444;
+      const beamColor = action.kind === 'A' ? 0x44ff44 : action.kind === 'M' ? 0xffaa00 : 0xff4444;
 
       bg.clear();
       if (targetFile) {
         const dx = targetFile.x - user.x;
         const dy = targetFile.y - user.y;
-        bg.moveTo(user.x, user.y);
-        bg.lineTo(user.x + dx * action.progress, user.y + dy * action.progress);
+        const dist = Math.hypot(dx, dy) || 1;
+        const nx = -dy / dist;
+        const ny = dx / dist;
+
+        const endX = user.x + dx * action.progress;
+        const endY = user.y + dy * action.progress;
+
+        // Tapered quad: wide at file end, dim at user end
+        const sourceWidth = GOURCE.fileDiameter * 0.3;
+        const targetWidth = GOURCE.fileDiameter;
+
+        const srcAlpha = 0.1;
+        const destAlpha = (1 - action.progress) * 0.8;
+
+        bg.moveTo(user.x + nx * sourceWidth, user.y + ny * sourceWidth);
+        bg.lineTo(user.x - nx * sourceWidth, user.y - ny * sourceWidth);
+        bg.lineTo(endX - nx * targetWidth, endY - ny * targetWidth);
+        bg.lineTo(endX + nx * targetWidth, endY + ny * targetWidth);
+        bg.fill({ color: beamColor, alpha: destAlpha });
+
+        // Source end glow
+        bg.moveTo(user.x + nx * sourceWidth, user.y + ny * sourceWidth);
+        bg.lineTo(user.x - nx * sourceWidth, user.y - ny * sourceWidth);
+        bg.lineTo(user.x - nx * sourceWidth * 0.5, user.y - ny * sourceWidth * 0.5);
+        bg.lineTo(user.x + nx * sourceWidth * 0.5, user.y + ny * sourceWidth * 0.5);
+        bg.fill({ color: beamColor, alpha: srcAlpha });
       } else {
+        // Fallback horizontal beam
         const beamLen = 30 + Math.sin(action.progress * Math.PI) * 20;
-        bg.moveTo(user.x, user.y);
-        bg.lineTo(user.x + beamLen, user.y);
+        bg.moveTo(user.x, user.y - 1);
+        bg.lineTo(user.x, user.y + 1);
+        bg.lineTo(user.x + beamLen, user.y + 3);
+        bg.lineTo(user.x + beamLen, user.y - 3);
+        bg.fill({ color: beamColor, alpha: 0.6 });
       }
-      bg.stroke({ color: beamColor, width: 1.5, alpha: 0.6 });
     }
   }
 

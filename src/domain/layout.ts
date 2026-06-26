@@ -94,7 +94,7 @@ function computeDirArea(dir: DirectoryNode): number {
 }
 
 /** Gource area-based directory radius. */
-function computeDirRadius(dir: DirectoryNode, area: number): number {
+function computeDirRadius(dir: DirectoryNode, area: number): { radius: number; parentRadius: number } {
   const directVisibleFiles = dir.files.filter((f) => !f.markedForRemoval).length;
   const fileArea = GOURCE.fileRadius * GOURCE.fileRadius * Math.PI;
   const directFileArea = fileArea * directVisibleFiles;
@@ -260,15 +260,15 @@ function applyDirForces(
       const dist = Math.hypot(dx, dy);
       if (dist > 0.001) {
         const force = GOURCE.forceGravity * dist;
-        fx[globalI] += force * (dx / dist);
-        fy[globalI] += force * (dy / dist);
+        fx[globalI]! += force * (dx / dist);
+        fy[globalI]! += force * (dy / dist);
       }
 
       // Parent separation: push child outside parent radius
       if (dist < parent.radius + (a.parentRadius ?? 0) && dist > 0.001) {
         const pushForce = (parent.radius + (a.parentRadius ?? 0) - dist) * 10;
-        fx[globalI] -= pushForce * (dx / dist);
-        fy[globalI] -= pushForce * (dy / dist);
+        fx[globalI]! -= pushForce * (dx / dist);
+        fy[globalI]! -= pushForce * (dy / dist);
       }
     }
 
@@ -277,8 +277,8 @@ function applyDirForces(
       const dx = parent.x - grandparent.x;
       const dy = parent.y - grandparent.y;
       const len = Math.hypot(dx, dy) || 1;
-      fx[globalI] += (dx / len) * GOURCE.forceGravity * 0.5;
-      fy[globalI] += (dy / len) * GOURCE.forceGravity * 0.5;
+      fx[globalI]! += (dx / len) * GOURCE.forceGravity * 0.5;
+      fy[globalI]! += (dy / len) * GOURCE.forceGravity * 0.5;
     }
   }
 
@@ -297,10 +297,10 @@ function applyDirForces(
       const minDist = a.radius + b.radius;
       if (dist < minDist) {
         const force = (minDist - dist) * 5 / dist;
-        fx[gi] -= force * dx;
-        fy[gi] -= force * dy;
-        fx[gj] += force * dx;
-        fy[gj] += force * dy;
+        fx[gi]! -= force * dx;
+        fy[gi]! -= force * dy;
+        fx[gj]! += force * dx;
+        fy[gj]! += force * dy;
       }
     }
   }
@@ -328,10 +328,10 @@ function applyDirForces(
         const dist = Math.hypot(dx, dy);
         if (dist < 0.001) continue;
         const force = scale / dist;
-        fx[gi] -= force * (dx / dist);
-        fy[gi] -= force * (dy / dist);
-        fx[gj] += force * (dx / dist);
-        fy[gj] += force * (dy / dist);
+        fx[gi]! -= force * (dx / dist);
+        fy[gi]! -= force * (dy / dist);
+        fx[gj]! += force * (dx / dist);
+        fy[gj]! += force * (dy / dist);
       }
     }
   }
