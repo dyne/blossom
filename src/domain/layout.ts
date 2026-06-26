@@ -211,6 +211,125 @@ function addDirNode(
   }
 }
 
+/** Gource-style directory forces: parent gravity, separation, overlap repulsion, grandparent bias, sibling spacing. */
+function applyDirForces(
+  nodes: LayoutNode[],
+  fx: Float64Array,
+  fy: Float64Array,
+): void {
+  const nodeMap = new Map(nodes.map((nd) => [nd.id, nd]));
+  // Map dir node id to global index
+  const dirIndexMap = new Map<string, number>();
+  const dirs: LayoutNode[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    if (nodes[i]!.kind === 'dir') {
+      dirIndexMap.set(nodes[i]!.id, i);
+      dirs.push(nodes[i]!);
+    }
+  }
+  const n = dirs.length;
+
+  for (let i = 0; i < n; i++) {
+    const a = dirs[i]!;
+    const globalI = dirIndexMap.get(a.id)!;
+    const parent = a.parent ? nodeMap.get(a.parent) : undefined;
+    const grandparent = parent?.parent ? nodeMap.get(parent.parent) : undefined;
+
+    // Initialize position if not yet set
+    if (!a.positionInitialized && parent) {
+      a.positionInitialized = true;
+      const gpDir = grandparent
+        ? { x: parent.x - grandparent.x, y: parent.y - grandparent.y }
+        : { x: 1, y: 0 };
+      const len = Math.hypot(gpDir.x, gpDir.y) || 1;
+      a.x = parent.x + (gpDir.x / len) * 2;
+      a.y = parent.y + (gpDir.y / len) * 2;
+    }
+
+    // Parent gravity: attract toward parent
+    if (parent) {
+      const dx = parent.x - a.x;
+      const dy = parent.y - a.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 0.001) {
+        const force = GOURCE.forceGravity * dist;
+        fx[globalI] += force * (dx / dist);
+        fy[globalI] += force * (dy / dist);
+      }
+
+      // Parent separation: push child outside parent radius
+      if (dist < parent.radius + (a.parentRadius ?? 0) && dist > 0.001) {
+        const pushForce = (parent.radius + (a.parentRadius ?? 0) - dist) * 10;
+        fx[globalI] -= pushForce * (dx / dist);
+        fy[globalI] -= pushForce * (dy / dist);
+      }
+    }
+
+    // Grandparent bias: push outward along grandparent->parent direction
+    if (grandparent && parent) {
+      const dx = parent.x - grandparent.x;
+      const dy = parent.y - grandparent.y;
+      const len = Math.hypot(dx, dy) || 1;
+      fx[globalI] += (dx / len) * GOURCE.forceGravity * 0.5;
+      fy[globalI] += (dy / len) * GOURCE.forceGravity * 0.5;
+    }
+  }
+
+  // Overlap repulsion
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const a = dirs[i]!;
+      const b = dirs[j]!;
+      const gi = dirIndexMap.get(a.id)!;
+      const gj = dirIndexMap.get(b.id)!;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 0.001) continue;
+
+      const minDist = a.radius + b.radius;
+      if (dist < minDist) {
+        const force = (minDist - dist) * 5 / dist;
+        fx[gi] -= force * dx;
+        fy[gi] -= force * dy;
+        fx[gj] += force * dx;
+        fy[gj] += force * dy;
+      }
+    }
+  }
+
+  // Sibling spacing
+  const siblingsByParent = new Map<string, LayoutNode[]>();
+  for (const d of dirs) {
+    const pid = d.parent ?? '';
+    let list = siblingsByParent.get(pid);
+    if (!list) { list = []; siblingsByParent.set(pid, list); }
+    list.push(d);
+  }
+  for (const [, siblings] of siblingsByParent) {
+    if (siblings.length < 2) continue;
+    const parent = siblings[0]?.parent ? nodeMap.get(siblings[0].parent) : undefined;
+    const scale = parent ? (parent.radius * Math.PI) / (siblings.length + 1) : 50;
+    for (let i = 0; i < siblings.length; i++) {
+      for (let j = i + 1; j < siblings.length; j++) {
+        const a = siblings[i]!;
+        const b = siblings[j]!;
+        const gi = dirIndexMap.get(a.id)!;
+        const gj = dirIndexMap.get(b.id)!;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 0.001) continue;
+        const force = scale / dist;
+        fx[gi] -= force * (dx / dist);
+        fy[gi] -= force * (dy / dist);
+        fx[gj] += force * (dx / dist);
+        fy[gj] += force * (dy / dist);
+      }
+    }
+  }
+}
+
 /** Step the physics simulation forward by the fixed dt. */
 export function tickPhysics(
   nodes: LayoutNode[],
@@ -220,58 +339,35 @@ export function tickPhysics(
   const dt = config.dt;
   const n = nodes.length;
 
-  // Reset forces
   const fx = new Float64Array(n);
   const fy = new Float64Array(n);
 
-  // O(n²) pairwise forces
+  // Gource-style directory forces
+  applyDirForces(nodes, fx, fy);
+
+  // User-user repulsion + user-target attraction
   for (let i = 0; i < n; i++) {
+    const a = nodes[i]!;
+    if (a.kind !== 'user') continue;
     for (let j = i + 1; j < n; j++) {
-      const a = nodes[i]!;
       const b = nodes[j]!;
+      if (b.kind !== 'user') continue;
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const dist = Math.hypot(dx, dy);
       if (dist < 0.001) continue;
-
-      if (a.kind === 'dir' && b.kind === 'dir') {
-        // Parent attraction
-        if (b.parent === a.id) {
-          const force = config.parentAttraction * dist;
-          fx[i]! += force * (dx / dist);
-          fy[i]! += force * (dy / dist);
-          fx[j]! -= force * (dx / dist);
-          fy[j]! -= force * (dy / dist);
-        } else if (a.parent === b.id) {
-          const force = config.parentAttraction * dist;
-          fx[j]! += force * (dx / dist);
-          fy[j]! += force * (dy / dist);
-          fx[i]! -= force * (dx / dist);
-          fy[i]! -= force * (dy / dist);
-        } else {
-          // Sibling repulsion
-          const force = config.siblingRepulsion / (dist * dist);
-          fx[i]! -= force * (dx / dist);
-          fy[i]! -= force * (dy / dist);
-          fx[j]! += force * (dx / dist);
-          fy[j]! += force * (dy / dist);
-        }
-      } else if (a.kind === 'user' && b.kind === 'user') {
-        // User-user repulsion
-        const force = config.userRepulsion / (dist * dist);
-        fx[i]! -= force * (dx / dist);
-        fy[i]! -= force * (dy / dist);
-        fx[j]! += force * (dx / dist);
-        fy[j]! += force * (dy / dist);
-      }
+      const force = config.userRepulsion / (dist * dist);
+      fx[i]! -= force * (dx / dist);
+      fy[i]! -= force * (dy / dist);
+      fx[j]! += force * (dx / dist);
+      fy[j]! += force * (dy / dist);
     }
 
-    // User attraction to target
-    if (nodes[i]!.kind === 'user' && userTargets) {
-      const target = userTargets.get(nodes[i]!.id);
+    if (userTargets) {
+      const target = userTargets.get(a.id);
       if (target) {
-        const dx = target.x - nodes[i]!.x;
-        const dy = target.y - nodes[i]!.y;
+        const dx = target.x - a.x;
+        const dy = target.y - a.y;
         const dist = Math.hypot(dx, dy);
         if (dist > 1) {
           fx[i]! += config.userAttraction * dx;
@@ -279,22 +375,6 @@ export function tickPhysics(
         }
       }
     }
-  }
-
-  // File-to-parent attraction
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
-  for (let i = 0; i < n; i++) {
-    const node = nodes[i]!;
-    if (node.kind !== 'file' || !node.parent) continue;
-    const parent = nodeMap.get(node.parent);
-    if (!parent) continue;
-    const dx = parent.x - node.x;
-    const dy = parent.y - node.y;
-    const dist = Math.hypot(dx, dy);
-    if (dist < 0.001) continue;
-    const force = config.parentAttraction * 0.5 * dist;
-    fx[i]! += force * (dx / dist);
-    fy[i]! += force * (dy / dist);
   }
 
   // Integrate (skip file nodes — they move in local coords)

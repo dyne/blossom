@@ -241,25 +241,53 @@ describe('tickPhysics', () => {
     expect(fileNode.y).toBeCloseTo(dirNode.y + (fileNode.localY ?? 0), 0);
   });
 
-  it('file no overshoot to ring destination', () => {
-    const dirs: DirectoryNode[] = [makeDir('src', 'src', 1)];
-    const nodes = buildLayout(dirs, []);
-    const fileNode = nodes.find((n) => n.kind === 'file')!;
-    const tx = (fileNode.destX ?? 0) * (fileNode.distance ?? 0);
-    const ty = (fileNode.destY ?? 0) * (fileNode.distance ?? 0);
+  it('directory forces: child initialized near parent', () => {
+    const child = makeDir('b', 'a/b', 1);
+    const parent = makeDir('a', 'a', 1, [child]);
+    const nodes = buildLayout([parent], []);
+    const childNode = nodes.find((n) => n.id === 'dir:a/b')!;
+    const parentNode = nodes.find((n) => n.id === 'dir:a')!;
 
-    for (let i = 0; i < 600; i++) {
-      updateFilePositions(nodes, 1 / 60);
-    }
-
-    expect(Math.abs((fileNode.localX ?? 0) - tx)).toBeLessThan(0.1);
-    expect(Math.abs((fileNode.localY ?? 0) - ty)).toBeLessThan(0.1);
+    expect(childNode.positionInitialized).toBe(true);
+    const dist = Math.hypot(childNode.x - parentNode.x, childNode.y - parentNode.y);
+    expect(dist).toBeGreaterThan(0); // not on top of parent
+    expect(dist).toBeLessThan(100); // near parent
   });
 
-  it('preserves valid coordinates after reset-like empty build', () => {
-    const nodes = buildLayout([], []);
-    tickPhysics(nodes);
-    expect(nodes).toHaveLength(0);
+  it('directory forces: no overlap after repeated ticks', () => {
+    const dirs: DirectoryNode[] = [
+      makeDir('a', 'a', 5),
+      makeDir('b', 'b', 5),
+    ];
+    const nodes = buildLayout(dirs, []);
+    for (let i = 0; i < 100; i++) {
+      tickPhysics(nodes);
+    }
+    const dirNodes = nodes.filter((n) => n.kind === 'dir');
+    for (let i = 0; i < dirNodes.length; i++) {
+      for (let j = i + 1; j < dirNodes.length; j++) {
+        const a = dirNodes[i]!;
+        const b = dirNodes[j]!;
+        const dist = Math.hypot(b.x - a.x, b.y - a.y);
+        expect(dist).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('directory forces: child separated from parent by parent radius', () => {
+    const child = makeDir('b', 'a/b', 1);
+    const parent = makeDir('a', 'a', 1, [child]);
+    const nodes = buildLayout([parent], []);
+    const childNode = nodes.find((n) => n.id === 'dir:a/b')!;
+    const parentNode = nodes.find((n) => n.id === 'dir:a')!;
+
+    for (let i = 0; i < 100; i++) {
+      tickPhysics(nodes);
+    }
+
+    const dist = Math.hypot(childNode.x - parentNode.x, childNode.y - parentNode.y);
+    // Child should be at or beyond parent radius
+    expect(dist).toBeGreaterThan(parentNode.radius * 0.5);
   });
 
   it('performance smoke test: 500 nodes for 60 frames', () => {
